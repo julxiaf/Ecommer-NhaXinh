@@ -1,0 +1,61 @@
+# =========================
+# 1. MÔI TRƯỜNG & BẢO MẬT
+# =========================
+.env
+.env.local
+.env.*.local
+*.pem
+cookie.txt
+cookies.txt
+
+# =========================
+# 2. CLIENT (React / Node.js)
+# =========================
+client/nhaxinhf12/node_modules/
+client/nhaxinhf12/dist/
+client/nhaxinhf12/build/
+client/nhaxinhf12/.vite/
+# Nếu có thư mục node_modules chung ở gốc:
+node_modules/
+dist/
+build/
+
+# =========================
+# 3. SERVER (Java / Maven)
+# =========================
+server/target/
+server/.mvn/
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# =========================
+# 4. LOGS & FILE TẠM
+# =========================
+logs/
+server/logs/
+*.log
+*.sqlite
+*.db
+
+# =========================
+# 5. IDE & CÔNG CỤ (VS Code, IntelliJ)
+# =========================
+.idea/
+*.iml
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# =========================
+# 6. HỆ ĐIỀU HÀNH
+# =========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini

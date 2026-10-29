@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Link } from "react-router-dom";
-import { Sparkles, ArrowRight, Gift, ShieldCheck, ChevronLeft, ChevronRight } from "lucide-react";
+import { Sparkles, ChevronLeft, ChevronRight } from "lucide-react";
 import ProductCard from "./ProductCard";
 import type { Product } from "../types/catalog";
 import { productService } from "../services/productService";
@@ -14,7 +13,6 @@ export default function PandoraSuggest() {
   const [selectedTag, setSelectedTag] = useState<string>("Tất cả");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [boxOpened, setBoxOpened] = useState(false);
 
   // ── Horizontal Slider Refs & Scroll State ──
   const sliderRef = useRef<HTMLDivElement>(null);
@@ -258,64 +256,6 @@ export default function PandoraSuggest() {
             </div>
           )}
         </div>
-
-        {/* ── BANNER KHÁM PHÁ HỘP QUÀ PANDORA STYLIST ── */}
-        <div className="pandora-banner-box">
-          <div className="pandora-banner-text">
-            <span className="pandora-banner-kicker">
-              <ShieldCheck size={16} className="inline text-[#b86b49] mr-1.5" />
-              Dịch vụ Tư vấn Không gian Pandora Personal Stylist
-            </span>
-            <h3 className="pandora-banner-h3">
-              Chưa tìm thấy mảnh ghép ưng ý cho tổ ấm của bạn?
-            </h3>
-            <p className="pandora-banner-desc">
-              Đội ngũ kiến trúc sư & stylist của Nhà Xinh sẵn sàng thiết kế mô phỏng 3D miễn phí và tuyển chọn bộ nội thất phối riêng theo diện tích thực tế nhà bạn.
-            </p>
-          </div>
-
-          <div className="pandora-banner-actions">
-            <button
-              type="button"
-              onClick={() => setBoxOpened(true)}
-              className="pandora-cta-btn"
-            >
-              <Gift size={16} />
-              <span>Mở Hộp Quà Gợi Ý Pandora</span>
-            </button>
-            <Link to="/tu-van-thiet-ke" className="pandora-secondary-btn">
-              <span>Đăng ký tư vấn 3D</span>
-              <ArrowRight size={14} />
-            </Link>
-          </div>
-        </div>
-
-        {/* Modal Hộp Quà Phong Cách */}
-        {boxOpened && (
-          <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-            <div className="w-full max-w-md bg-white rounded-2xl p-6 sm:p-7 shadow-2xl border border-amber-200 text-center relative">
-              <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4">
-                <Gift size={32} />
-              </div>
-              <h4 className="text-xl font-bold text-gray-900 mb-2">
-                Hộp Quà Phong Cách Pandora
-              </h4>
-              <p className="text-xs sm:text-sm text-gray-600 mb-4">
-                Bạn nhận được voucher độc quyền <strong className="text-[#b86b49]">PANDORA-LUX10</strong> giảm trực tiếp 10% cho tất cả đơn hàng nội thất trong tháng này!
-              </p>
-              <div className="bg-[#FAF7F2] p-3 rounded-xl border border-dashed border-[#B86B49] text-sm font-mono font-bold text-[#B86B49] mb-5 tracking-wider">
-                MÃ: PANDORA-LUX10
-              </div>
-              <button
-                type="button"
-                onClick={() => setBoxOpened(false)}
-                className="w-full py-2.5 bg-[#1F1D1A] hover:bg-[#B86B49] text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer"
-              >
-                Lưu mã & Đóng
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );
