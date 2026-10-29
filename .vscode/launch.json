@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "NhaxinhApplication (Server)",
+      "request": "launch",
+      "mainClass": "vn.nhaxinh.NhaxinhApplication",
+      "projectName": "nhaxinh-api",
+      "cwd": "${workspaceFolder}/server"
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+/* ═══════════════════════════════════════════════
+   SEARCH PAGE
+   ═══════════════════════════════════════════════ */
+
+.search-hero {
+  text-align: center;
+  padding: 40px 0 48px;
+}
+.search-hero-title {
+  font-size: 36px;
+  font-weight: 700;
+  color: #1f1d1a;
+  margin: 0 0 28px;
+  letter-spacing: -0.02em;
+}
+.search-form {
+  display: flex;
+  align-items: center;
+  max-width: 680px;
+  margin: 0 auto;
+  position: relative;
+  gap: 0;
+}
+.search-form-icon {
+  position: absolute;
+  left: 18px;
+  color: #9e9789;
+  pointer-events: none;
+}
+.search-form input {
+  flex: 1;
+  padding: 16px 16px 16px 50px;
+  border: 2px solid #e6e1d8;
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  font: inherit;
+  font-size: 16px;
+  color: #1f1d1a;
+  outline: none;
+  transition: border-color 0.25s;
+  background: #fff;
+}
+.search-form input:focus {
+  border-color: #d26e4b;
+}
+.search-submit {
+  border-radius: 0 8px 8px 0 !important;
+  height: 56px;
+  padding: 0 32px;
+  white-space: nowrap;
+}
+
+.search-results-header {
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e6e1d8;
+}
+.search-count {
+  font-size: 15px;
+  color: #6f6a62;
+}
+.search-count strong {
+  color: #1f1d1a;
+}
+
+/* Suggestions */
+.search-suggestions {
+  text-align: center;
+  padding: 40px 0;
+}
+.search-suggestions h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f1d1a;
+  margin: 0 0 20px;
+}
+.search-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+.search-tag {
+  padding: 10px 22px;
+  border: 1px solid #e6e1d8;
+  border-radius: 24px;
+  background: #fff;
+  font: inherit;
+  font-size: 14px;
+  color: #6f6a62;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+.search-tag:hover {
+  background: #1f1d1a;
+  color: #fff;
+  border-color: #1f1d1a;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 600px) {
+  .search-hero-title {
+    font-size: 24px;
+  }
+  .search-form {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .search-form input {
+    border-right: 2px solid #e6e1d8;
+    border-radius: 8px;
+  }
+  .search-form input:focus {
+    border-color: #d26e4b;
+  }
+  .search-submit {
+    border-radius: 8px !important;
+    width: 100%;
+  }
+}

@@ -1,0 +1,56 @@
+```yaml
+$kind: http-request
+name: Register
+method: POST
+url: '{{base_url}}/api/v1/auth/register'
+order: 1000
+
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: X-XSRF-TOKEN
+    value: '{{csrf_token}}'
+
+body:
+  type: json
+  content: |-
+    {
+      "username": "{{username}}",
+      "password": "{{password}}",
+      "email": "{{email}}",
+      "phone": "{{phone}}",
+      "fullName": "{{fullName}}",
+      "marketingConsent": {{marketingConsent}}
+    }
+
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      const status = pm.response.code;
+      const contentType = pm.response.headers.get("Content-Type") || "";
+
+      pm.test("Register returns expected status", function () {
+          pm.expect([201, 400, 409, 422]).to.include(status);
+      });
+
+      if (status === 201) {
+          const json = pm.response.json();
+
+          pm.test("Registration succeeds", function () {
+              pm.expect(json).to.exist;
+          });
+
+          console.log("Đăng ký tài khoản thành công");
+      } else if ([400, 422].includes(status)) {
+          console.log("Dữ liệu đăng ký không hợp lệ:", pm.response.text());
+      } else if (status === 409) {
+          console.log("Username, email hoặc số điện thoại đã tồn tại");
+      } else {
+          console.log("Register response:", status, pm.response.text());
+      }
+
+      pm.test("Response is JSON", function () {
+          pm.expect(contentType).to.include("application/json");
+      });
+```

@@ -1,0 +1,239 @@
+/* ═══════════════════════════════════════════════
+   PAGE TRANSITION & LOADING ANIMATIONS
+   ═══════════════════════════════════════════════ */
+
+/* ── Page Fade-in ── */
+.page-enter {
+  animation: pageFadeIn 0.5s ease both;
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Staggered children animation ── */
+.stagger-in > * {
+  opacity: 0;
+  animation: staggerFadeUp 0.5s ease forwards;
+}
+.stagger-in > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger-in > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger-in > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger-in > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger-in > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger-in > *:nth-child(6) { animation-delay: 0.3s; }
+.stagger-in > *:nth-child(7) { animation-delay: 0.35s; }
+.stagger-in > *:nth-child(8) { animation-delay: 0.4s; }
+.stagger-in > *:nth-child(9) { animation-delay: 0.45s; }
+.stagger-in > *:nth-child(10) { animation-delay: 0.5s; }
+.stagger-in > *:nth-child(11) { animation-delay: 0.55s; }
+.stagger-in > *:nth-child(12) { animation-delay: 0.6s; }
+
+@keyframes staggerFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Skeleton loading placeholder ── */
+.skeleton {
+  background: linear-gradient(90deg, #f0ece6 25%, #e6e1d8 50%, #f0ece6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-text {
+  height: 14px;
+  margin-bottom: 8px;
+  width: 80%;
+}
+.skeleton-text.short {
+  width: 50%;
+}
+.skeleton-img {
+  aspect-ratio: 4 / 5;
+  width: 100%;
+}
+.skeleton-card {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ── Top loading bar ── */
+.top-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  height: 3px;
+  background: linear-gradient(90deg, #d26e4b, #e8a838, #d26e4b);
+  background-size: 200% 100%;
+  animation: topLoaderProgress 0.8s ease forwards, shimmer 1s infinite;
+  border-radius: 0 2px 2px 0;
+}
+@keyframes topLoaderProgress {
+  from { width: 0; }
+  to { width: 90%; }
+}
+.top-loader.done {
+  width: 100% !important;
+  opacity: 0;
+  transition: opacity 0.3s 0.2s;
+}
+
+/* ── Scroll reveal (via IntersectionObserver) ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal-left.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.reveal-right {
+  opacity: 0;
+  transform: translateX(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.reveal-right.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.reveal-scale.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Smooth image loading ── */
+.img-lazy {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.img-lazy.loaded {
+  opacity: 1;
+}
+
+/* ── Toast notification (Luôn hiển thị trên cùng - Top Center, High Z-Index) ── */
+.toast-container {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-radius: 12px;
+  background: #1f1d1a;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.12);
+  pointer-events: all;
+  animation: toastInTop 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast.toast-success {
+  background: #15803d;
+  border: 1px solid #16a34a;
+}
+.toast.toast-error {
+  background: #b91c1c;
+  border: 1px solid #dc2626;
+}
+.toast.exiting {
+  animation: toastOutTop 0.3s ease forwards;
+}
+@keyframes toastInTop {
+  from { opacity: 0; transform: translateY(-24px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOutTop {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-20px) scale(0.95); }
+}
+
+/* ── Global Top Progress Bar ── */
+.global-route-progressbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #b38e5d 0%, #e6ca9e 50%, #b38e5d 100%);
+  background-size: 200% 100%;
+  z-index: 9999999;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(179, 142, 93, 0.65), 0 0 3px rgba(230, 202, 158, 0.85);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+  animation: routeProgressGlow 1.5s infinite linear;
+}
+
+@keyframes routeProgressGlow {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* ── Route Page Transition Animation ── */
+.route-page-container {
+  width: 100%;
+  min-height: 100%;
+}
+
+.route-page-enter {
+  animation: routeFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes routeFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-page-enter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

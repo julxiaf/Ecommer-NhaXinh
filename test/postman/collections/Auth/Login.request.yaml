@@ -1,0 +1,89 @@
+$kind: http-request
+name: Login
+method: POST
+url: '{{base_url}}/api/v1/auth/login'
+order: 2000
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: X-XSRF-TOKEN
+    value: '{{csrf_token}}'
+body:
+  type: json
+  content: |-
+    {
+      "username": "{{username}}",
+      "password": "{{password}}",
+      "email": "{{email}}",
+      "phone": "{{phone}}",
+      "fullName": "{{fullName}}",
+      "marketingConsent": "{{marketingConsent}}"
+    }
+scripts:
+  - type: beforeRequest
+    language: text/javascript
+    code: |-
+      // Lấy CSRF token trước khi gửi Login (cùng session cookie)
+      pm.sendRequest({
+          url: pm.collectionVariables.get("base_url") + "/api/v1/auth/csrf",
+          method: "GET"
+      }, function (err, res) {
+          if (err) {
+              console.error("Không lấy được CSRF token:", err);
+              return;
+          }
+          var token = res.json().token;
+          pm.collectionVariables.set("csrf_token", token);
+          pm.request.headers.upsert({ key: "X-XSRF-TOKEN", value: token });
+          console.log("CSRF token đã lấy và gắn vào header:", token);
+      });
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      // ===== TEST CASE: Login thành công (200) =====
+      if (pm.response.code === 200) {
+          pm.test("Login thành công - Status 200", function () {
+              pm.response.to.have.status(200);
+          });
+
+          pm.test("Response trả về authenticated = true", function () {
+              var json = pm.response.json();
+              pm.expect(json).to.have.property("authenticated");
+              pm.expect(json.authenticated).to.be.true;
+          });
+
+          pm.test("Response trả về username", function () {
+              var json = pm.response.json();
+              pm.expect(json).to.have.property("username");
+              pm.expect(json.username).to.be.a("string").and.not.empty;
+          });
+
+          // Lưu username vào variable
+          var json = pm.response.json();
+          pm.collectionVariables.set("logged_in_user", json.username);
+          console.log("Đăng nhập thành công với user:", json.username);
+      }
+
+      // ===== TEST CASE: Login thất bại (401) =====
+      if (pm.response.code === 401) {
+          pm.test("Login thất bại - Status 401", function () {
+              pm.response.to.have.status(401);
+          });
+
+          pm.test("Response trả về message lỗi", function () {
+              var json = pm.response.json();
+              pm.expect(json).to.have.property("message");
+              pm.expect(json.message).to.be.a("string").and.not.empty;
+          });
+
+          console.log("Đăng nhập thất bại:", pm.response.json().message);
+      }
+
+      // ===== TEST CHUNG =====
+      pm.test("Response time dưới 2000ms", function () {
+          pm.expect(pm.response.responseTime).to.be.below(2000);
+      });
+
+      pm.test("Content-Type là application/json", function () {
+          pm.expect(pm.response.headers.get("Content-Type")).to.include("application/json");
+      });

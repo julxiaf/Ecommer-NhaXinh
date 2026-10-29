@@ -1,0 +1,8 @@
+$kind: collection
+description: "Authentication endpoints: CSRF, Login, Me"
+variables:
+  base_url: http://localhost:8080
+  csrf_token: ""
+  username: admin
+  password: "1"
+  logged_in_user: ""

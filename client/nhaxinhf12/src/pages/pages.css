@@ -1,0 +1,226 @@
+/* ═══════════════════════════════════════════════
+   SHARED PAGE STYLES
+   ═══════════════════════════════════════════════ */
+
+/* ── Page Container ── */
+.page,
+.page-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  color: #1f1d1a;
+  min-height: 60vh;
+}
+
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 1px solid #e6e1d8;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f1d1a;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.btn-outline:hover {
+  border-color: #1f1d1a;
+  background: #f6f3ee;
+}
+
+/* ── Breadcrumb ── */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #9e9789;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.breadcrumb a {
+  color: #9e9789;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.breadcrumb a:hover {
+  color: #d26e4b;
+}
+.breadcrumb span {
+  color: #1f1d1a;
+}
+
+/* ── Page Title ── */
+.page-title {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  color: #1f1d1a;
+}
+.page-subtitle {
+  font-size: 15px;
+  color: #9e9789;
+  margin: 0 0 32px;
+}
+
+/* ── Product Grid ── */
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1024px) {
+  .product-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+}
+@media (max-width: 768px) {
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .product-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Empty State ── */
+.empty-state {
+  text-align: center;
+  padding: 80px 24px;
+}
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #f6f3ee;
+  color: #9e9789;
+  margin-bottom: 24px;
+}
+.empty-state h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: #1f1d1a;
+  margin: 0 0 8px;
+}
+.empty-state p {
+  font-size: 15px;
+  color: #9e9789;
+  margin: 0 0 28px;
+}
+.empty-state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border: none;
+  border-radius: 4px;
+  background: #1f1d1a;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.25s;
+}
+.empty-state-btn:hover {
+  background: #d26e4b;
+  color: #fff;
+}
+
+/* ── Buttons ── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border: none;
+  border-radius: 4px;
+  background: #0d7a44;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.25s;
+}
+.btn-primary:hover {
+ background: #109b55;
+}
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border: 1px solid #e6e1d8;
+  border-radius: 4px;
+  background: transparent;
+  color: #1f1d1a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.25s;
+}
+.btn-secondary:hover {
+  border-color: #1f1d1a;
+  background: #f6f3ee;
+}
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 4px;
+  background: #e74c3c;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.25s;
+}
+.btn-danger:hover {
+  background: #c0392b;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .page {
+    padding: 20px 16px 48px;
+  }
+  .page-title {
+    font-size: 24px;
+  }
+}

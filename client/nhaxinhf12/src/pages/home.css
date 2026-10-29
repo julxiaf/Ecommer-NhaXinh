@@ -1,0 +1,310 @@
+/* ═══════════════════════════════════════════════
+   HOME PAGE – Sections below hero
+   ═══════════════════════════════════════════════ */
+
+.home-section {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 0px;
+}
+
+.home-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 36px;
+  gap: 16px;
+}
+.home-section-title {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  color: #1f1d1a;
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+}
+.home-section-sub {
+  font-size: 15px;
+  color: #9e9789;
+  margin: 0;
+}
+.home-view-all {
+  font-size: 15px;
+  font-weight: 500;
+  color: #d26e4b;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.25s;
+}
+.home-view-all:hover {
+  color: #b85a3b;
+}
+
+/* ── Product Grid ── */
+.home-product-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+@media (max-width: 1024px) {
+  .home-product-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+}
+@media (max-width: 768px) {
+  .home-product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .home-product-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Category Cards ── */
+.home-categories {
+  background: #f9f7f4;
+  max-width: 100%;
+  padding-left: calc((100% - 1280px) / 2 + 24px);
+  padding-right: calc((100% - 1280px) / 2 + 24px);
+}
+.home-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+.home-cat-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  background: linear-gradient(135deg, #2a2721 0%, #3a342b 50%, #4a433a 100%);
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
+}
+.home-cat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(31, 29, 26, 0.15);
+}
+.home-cat-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(210, 110, 75, 0.15) 0%, rgba(0, 0, 0, 0.1) 100%);
+  transition: opacity 0.3s;
+}
+.home-cat-card:hover .home-cat-overlay {
+  opacity: 0.6;
+}
+.home-cat-name {
+  position: relative;
+  z-index: 1;
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.home-cat-count {
+  position: relative;
+  z-index: 1;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .home-cat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .home-categories {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .home-cat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── USP Banner ── */
+.home-usp {
+  background: #1f1d1a;
+}
+.home-usp-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 56px 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+}
+.home-usp-item {
+  text-align: center;
+  color: #fff;
+}
+.home-usp-icon {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 14px;
+}
+.home-usp-item h4 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: #fff;
+}
+.home-usp-item p {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .home-usp-inner {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px;
+    padding: 40px 20px;
+  }
+}
+@media (max-width: 480px) {
+  .home-usp-inner {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Responsive sections ── */
+@media (max-width: 768px) {
+  .home-section {
+    padding: 40px 16px;
+  }
+  .home-section-title {
+    font-size: 24px;
+  }
+  .home-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ── BỘ SƯU TẬP (COLLECTIONS SECTION) ── */
+.home-collections {
+  background: #fdfbf7;
+  border-top: 1px solid #ebd9b5;
+  border-bottom: 1px solid #ebd9b5;
+}
+
+.home-collection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 28px;
+}
+
+.home-collection-card {
+  position: relative;
+  height: 380px;
+  border-radius: 16px;
+  overflow: hidden;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 32px;
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+  box-shadow: 0 8px 24px rgba(31, 29, 26, 0.1);
+}
+
+.home-collection-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(31, 29, 26, 0.22);
+}
+
+.home-collection-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(20, 18, 16, 0.85) 100%);
+  transition: opacity 0.3s ease;
+}
+
+.home-collection-card:hover::before {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(20, 18, 16, 0.92) 100%);
+}
+
+.home-collection-badge {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  z-index: 2;
+  background: #c59b27;
+  color: #1a1712;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 5px 12px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.home-collection-content {
+  position: relative;
+  z-index: 2;
+  color: #ffffff;
+}
+
+.home-collection-title {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.home-collection-desc {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.5;
+  margin: 0 0 16px;
+  max-width: 440px;
+}
+
+.home-collection-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #e5b948;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: transform 0.2s;
+}
+
+.home-collection-card:hover .home-collection-link {
+  transform: translateX(4px);
+  color: #ffd875;
+}
+
+@media (max-width: 960px) {
+  .home-collection-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .home-collection-card {
+    height: 320px;
+    padding: 24px;
+  }
+  .home-collection-title {
+    font-size: 22px;
+  }
+}

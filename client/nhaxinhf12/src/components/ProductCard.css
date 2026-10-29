@@ -1,0 +1,154 @@
+/* ═══════════════════════════════════════════════
+   PRODUCT CARD
+   ═══════════════════════════════════════════════ */
+
+.pc {
+  position: relative;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.35s ease, transform 0.35s ease;
+}
+.pc:hover {
+  box-shadow: 0 12px 36px rgba(31, 29, 26, 0.1);
+  transform: translateY(-4px);
+}
+
+/* ── Image ── */
+.pc-img-wrap {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 4 / 5;
+  background: #f6f3ee;
+}
+.pc-img-link {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pc-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s ease, opacity 0.4s ease;
+}
+.pc:hover .pc-img {
+  transform: scale(1.06);
+}
+
+/* ── Badges ── */
+.pc-badges {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+}
+.pc-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pc-badge-new {
+  background: #059669;
+  color: #fff;
+}
+.pc-badge-sale {
+  background: #cd0e0e;
+  color: #fff;
+}
+
+/* ── Quick Actions ── */
+.pc-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.pc-actions.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.pc-act-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f1d1a;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.25s ease;
+  text-decoration: none;
+}
+.pc-act-btn:hover {
+  background: #1f1d1a;
+  color: #fff;
+  transform: scale(1.1);
+}
+.pc-act-btn.active {
+  color: #d26e4b;
+}
+
+/* ── Info ── */
+.pc-info {
+  padding: 16px 16px 20px;
+  text-align: left;
+}
+.pc-category {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9e9789;
+  margin-bottom: 6px;
+}
+.pc-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  color: #1f1d1a;
+  text-decoration: none;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  transition: color 0.25s;
+  /* Giới hạn 2 dòng */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pc-name:hover {
+  color: #d26e4b;
+}
+.pc-price-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pc-price {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f1d1a;
+}
+.pc-original {
+  font-size: 13px;
+  color: #b5b0a7;
+  text-decoration: line-through;
+}
