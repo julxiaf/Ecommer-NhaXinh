@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import {
   ChevronRight,
@@ -9,23 +9,61 @@ import {
   LayoutGrid,
   Layers,
   RotateCcw,
+  X,
+  Eye,
+  MessageCircle,
+  MapPin,
+  Calendar,
 } from "lucide-react";
 import Header from "../components/Headers";
 import Footer from "../components/Footer";
 import ProductCard from "../components/ProductCard";
 import { AdminPagination } from "../components/admin/AdminPagination";
-import { useStore } from "../hooks/useStore";
-import { useProductList, type SortKey } from "../hooks/useProductList";
+import { useCollections, ROOM_FILTER_TABS } from "../hooks/useCollections";
+import { type SortKey } from "../hooks/useProductList";
+import { DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
 import "./pages.css";
 import "./product-list.css";
 import "./collections.css";
 
 const vnd = (n: number) => Number(n).toLocaleString("vi-VN") + " ₫";
 
+function resolveVideoEmbed(rawUrl?: string): { type: "iframe" | "video"; src: string } | null {
+  if (!rawUrl || !rawUrl.trim()) return null;
+  const url = rawUrl.trim();
+
+  // YouTube watch?v= / youtu.be/ / youtube.com/shorts/ / youtube.com/embed/
+  const ytMatch = url.match(
+    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i
+  );
+  if (ytMatch && ytMatch[1]) {
+    return {
+      type: "iframe",
+      src: `https://www.youtube.com/embed/${ytMatch[1]}?rel=0`,
+    };
+  }
+
+  // Vimeo
+  const vimeoMatch = url.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+  if (vimeoMatch && vimeoMatch[1]) {
+    return {
+      type: "iframe",
+      src: `https://player.vimeo.com/video/${vimeoMatch[1]}`,
+    };
+  }
+
+  // Direct MP4 / WebM / MOV or uploaded video
+  return {
+    type: "video",
+    src: url,
+  };
+}
+
 export default function CollectionsPage() {
-  const store = useStore();
   const {
     slug,
+    serverArticles,
+    store,
     collections,
     activeCollectionInfo,
     loading,
@@ -37,37 +75,23 @@ export default function CollectionsPage() {
     setSearchQuery,
     gridCols,
     setGridCols,
-    categories,
     filtered,
     pagination,
     handleResetFilters,
-  } = useProductList();
-
-  const [styleFilter, setStyleFilter] = useState<string>("all");
-  const [collectionSearch, setCollectionSearch] = useState<string>("");
-
-  const styleTags = useMemo(() => {
-    const tags = new Set<string>();
-    collections.forEach((c) => {
-      if (c.styleTag) tags.add(c.styleTag);
-    });
-    return ["all", ...Array.from(tags)];
-  }, [collections]);
-
-  const filteredCollections = useMemo(() => {
-    const q = collectionSearch.trim().toLowerCase();
-    return collections.filter((col) => {
-      if (styleFilter !== "all" && col.styleTag !== styleFilter) return false;
-      if (q) {
-        const hay =
-          `${col.name} ${col.subtitle} ${col.description} ${col.materials} ${col.styleTag}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [collections, styleFilter, collectionSearch]);
-
-  const { paginatedItems: displayedProducts } = pagination;
+    displayedProducts,
+    styleFilter,
+    setStyleFilter,
+    collectionSearch,
+    setCollectionSearch,
+    readingArticle,
+    setReadingArticle,
+    readingArticleProducts,
+    getArticleCollectionUrl,
+    activeCollectionArticle,
+    styleTags,
+    filteredCollections,
+    roomProductCounts,
+  } = useCollections();
 
   return (
     <>
@@ -78,7 +102,7 @@ export default function CollectionsPage() {
       />
 
       <main className="page">
-        {/* Breadcrumb */}
+        {/* Breadcrumb Navigation chuẩn phong cách Nhà Xinh */}
         <nav className="breadcrumb" aria-label="Breadcrumb">
           <Link to="/">Trang chủ</Link>
           <ChevronRight size={14} />
@@ -101,39 +125,43 @@ export default function CollectionsPage() {
             {/* Editorial Lookbook Hero */}
             <section className="bst-hero">
               <img
-                src="https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1600&q=80"
+                src="/uploads/collections/hero-lookbook.jpg"
                 alt="Bộ Sưu Tập Nội Thất Nhà Xinh"
                 className="bst-hero-bg"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.onerror = null;
+                  target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                }}
               />
               <div className="bst-hero-overlay">
                 <span className="bst-eyebrow">
-                  <Sparkles size={13} /> LOOKBOOK NỘI THẤT ĐỘC QUYỀN 2026
+                  <Sparkles size={13} /> LOOKBOOK NỘI THẤT CAO CẤP • NHÀ XINH SIGNATURE
                 </span>
                 <h1 className="bst-hero-title">
                   Bộ Sưu Tập Không Gian Sống Nhà Xinh
                 </h1>
                 <p className="bst-hero-sub">
-                  Khác với danh mục sản phẩm đơn lẻ, mỗi Bộ Sưu Tập tại Nhà Xinh
-                  là một bản phối hoàn chỉnh về kiến trúc, chất liệu và bảng màu
-                  — giúp bạn kiến tạo không gian sống đồng điệu từ Phòng khách,
-                  Phòng ăn đến Phòng ngủ.
+                  Khác với danh mục sản phẩm đơn lẻ, mỗi Bộ Sưu Tập tại Nhà Xinh là một câu chuyện
+                  phong cách sống hoàn chỉnh về kiến trúc, chất liệu và bảng màu — giúp bạn kiến tạo
+                  tổ ấm đồng điệu trọn vẹn từ Phòng khách, Phòng ăn đến Phòng ngủ.
                 </p>
                 <div className="bst-hero-stats">
                   <div className="bst-stat-item">
-                    <span className="bst-stat-num">{collections.length}</span>
-                    <span className="bst-stat-label">Bộ sưu tập chủ đề</span>
+                    <span className="bst-stat-num">{collections.length}+</span>
+                    <span className="bst-stat-label">Bộ sưu tập độc quyền</span>
                   </div>
                   <div className="bst-stat-item">
                     <span className="bst-stat-num">100%</span>
-                    <span className="bst-stat-label">
-                      Thiết kế đồng bộ chất liệu
-                    </span>
+                    <span className="bst-stat-label">Đồng bộ 3 không gian</span>
                   </div>
                   <div className="bst-stat-item">
-                    <span className="bst-stat-num">4 Phong cách</span>
-                    <span className="bst-stat-label">
-                      Âu Châu • Đương Đại • Japandi • Resort
-                    </span>
+                    <span className="bst-stat-num">Ash • Beech • Da Ý</span>
+                    <span className="bst-stat-label">Chất liệu tự nhiên cao cấp</span>
+                  </div>
+                  <div className="bst-stat-item">
+                    <span className="bst-stat-num">24 Tháng</span>
+                    <span className="bst-stat-label">Bảo hành chính hãng</span>
                   </div>
                 </div>
               </div>
@@ -198,6 +226,11 @@ export default function CollectionsPage() {
                           src={col.bannerImage}
                           alt={col.name}
                           loading="lazy"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.onerror = null;
+                            target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                          }}
                         />
                         <div className="bst-media-badges">
                           <span className="bst-badge-style">
@@ -234,7 +267,7 @@ export default function CollectionsPage() {
                       </div>
                     </div>
 
-                    {/* Preview Strip of 3 Signature Products in this Collection */}
+                    {/* Preview Strip of Signature Products */}
                     {col.previewProducts && col.previewProducts.length > 0 && (
                       <div className="bst-preview-strip">
                         <div className="bst-preview-header">
@@ -259,6 +292,11 @@ export default function CollectionsPage() {
                                 src={item.image}
                                 alt={item.name}
                                 loading="lazy"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  target.onerror = null;
+                                  target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                                }}
                               />
                               <div className="bst-mini-meta">
                                 <span className="bst-mini-cat">
@@ -280,178 +318,480 @@ export default function CollectionsPage() {
                 ))}
               </div>
             )}
+
+            {/* ── BÀI VIẾT & CẢM HỨNG BỘ SƯU TẬP (LẤY TỪ SERVER BACKEND) ── */}
+            {serverArticles.length > 0 && (
+              <section className="bst-articles-section">
+                <div className="bst-articles-header">
+                  <div>
+                    <span className="col-hero-eyebrow">LOOKBOOK & CẢM HỨNG THIẾT KẾ</span>
+                    <h2 className="page-title" style={{ fontSize: "24px", margin: "4px 0 0" }}>
+                      Bài Viết Chuyên Đề Về Bộ Sưu Tập
+                    </h2>
+                  </div>
+                  <span className="bst-preview-more">
+                    Lấy trực tiếp từ hệ thống Nhà Xinh Server
+                  </span>
+                </div>
+
+                <div className="bst-articles-grid">
+                  {serverArticles.map((art) => {
+                    const collectionUrl = getArticleCollectionUrl(art);
+                    return (
+                      <Link
+                        key={art.id}
+                        to={collectionUrl}
+                        className="bst-article-card group cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg block text-inherit no-underline"
+                      >
+                        <div className="bst-article-img-wrap relative overflow-hidden">
+                          <img
+                            src={art.image}
+                            alt={art.title}
+                            loading="lazy"
+                            className="transition-transform duration-500 group-hover:scale-105"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.onerror = null;
+                              target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                            }}
+                          />
+                          <span className="bst-article-tag">Bộ sưu tập</span>
+                        </div>
+                        <div className="bst-article-body">
+                          <span className="bst-article-meta flex items-center justify-between">
+                            <span>{art.author} • {art.createdAt}</span>
+                            <span className="flex items-center gap-1 text-[11px] text-stone-500">
+                              <Eye size={12} /> {art.views} lượt xem
+                            </span>
+                          </span>
+                          <h3 className="bst-article-title group-hover:text-amber-800 transition-colors">
+                            {art.title}
+                          </h3>
+                          <p className="bst-article-desc">{art.summary}</p>
+                          <div className="flex items-center justify-between pt-2">
+                            <span className="bst-article-link inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 group-hover:text-amber-900 group-hover:gap-2 transition-all">
+                              Khám phá bộ sưu tập & sản phẩm <ArrowRight size={14} />
+                            </span>
+                            {art.collectionSlug && (
+                              <span className="text-[11px] font-semibold text-stone-600 bg-stone-100 group-hover:bg-amber-100 group-hover:text-amber-900 px-2.5 py-1 rounded transition-colors font-mono">
+                                /{art.collectionSlug}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Banner tư vấn thiết kế & Trải nghiệm Showroom */}
+            <section className="bst-consult-banner">
+              <div className="bst-consult-info">
+                <span className="bst-consult-eyebrow">
+                  <Sparkles size={13} /> TRẢI NGHIỆM THỰC TẾ & TƯ VẤN THIẾT KẾ
+                </span>
+                <h3 className="bst-consult-title">
+                  Kiến tạo tổ ấm trong mơ cùng đội ngũ Kiến trúc sư Nhà Xinh
+                </h3>
+                <p className="bst-consult-sub">
+                  Ghé thăm hệ thống showroom Nhà Xinh tại Hà Nội, TP.HCM & Bình Dương để trực tiếp chạm,
+                  cảm nhận chất liệu gỗ tự nhiên, da Ý và nhận bản vẽ phối cảnh 3D miễn phí cho ngôi nhà bạn.
+                </p>
+              </div>
+              <div className="bst-consult-btns">
+                <a
+                  href="https://zalo.me/0974933486"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bst-consult-btn-zalo"
+                >
+                  <MessageCircle size={17} />
+                  <span>Chat Zalo tư vấn (0974.933.486)</span>
+                </a>
+                <Link to="/tu-van-thiet-ke" className="bst-consult-btn-3d">
+                  <Calendar size={17} />
+                  <span>Đăng ký tư vấn 3D</span>
+                </Link>
+                <Link to="/he-thong-showroom" className="bst-consult-btn-showroom">
+                  <MapPin size={17} />
+                  <span>Hệ thống Showroom</span>
+                </Link>
+              </div>
+            </section>
           </>
         ) : (
           /* ════════════════════════════════════════════════════════════════ */
           /* TRƯỜNG HỢP 2: TRANG CHI TIẾT 1 BỘ SƯU TẬP (/bo-suu-tap/:slug)    */
+          /* Thiết kế chuẩn mẫu Nhà Xinh: Banner chữ trắng ở giữa -> Trích dẫn */
+          /* nghiêng -> Câu chuyện chất liệu -> Ảnh đôi 2 cột -> Video -> SP  */
           /* ════════════════════════════════════════════════════════════════ */
           <>
-            {/* Collection Story Hero Banner */}
-            <div className="col-showcase-wrap">
-              <div className="col-hero-banner">
-                <div className="col-hero-media">
-                  <img
-                    src={activeCollectionInfo.bannerImage}
-                    alt={activeCollectionInfo.name}
-                  />
-                  <span className="col-hero-badge">
-                    <Sparkles size={13} /> {activeCollectionInfo.styleTag}
-                  </span>
-                </div>
-                <div className="col-hero-body">
-                  <div className="col-hero-eyebrow">
-                    BỘ SƯU TẬP ĐỘC QUYỀN NHÀ XINH
-                  </div>
-                  <h1 className="col-hero-title">
-                    {activeCollectionInfo.name}
-                  </h1>
-                  <p className="col-hero-subtitle">
-                    {activeCollectionInfo.subtitle}
-                  </p>
-                  <p className="col-hero-desc">
-                    {activeCollectionInfo.description}
-                  </p>
-                  <div className="col-hero-materials">
-                    <strong>Chất liệu chủ đạo:</strong>{" "}
-                    {activeCollectionInfo.materials}
-                  </div>
-                  <div className="col-hero-footer">
-                    <span className="col-hero-count">
-                      Hiển thị <strong>{filtered.length}</strong> thiết kế trong
-                      bộ sưu tập
+            {/* Thanh chuyển nhanh giữa các Bộ sưu tập */}
+            <div className="col-pills-bar" style={{ marginBottom: "20px" }}>
+              <Link to="/bo-suu-tap" className="col-pill">
+                ← Tất cả Bộ sưu tập
+              </Link>
+              {collections.map((col) => {
+                const isColActive =
+                  slug === col.slug ||
+                  Boolean(slug && col.aliases?.includes(slug));
+                return (
+                  <Link
+                    key={col.slug}
+                    to={`/bo-suu-tap/${col.slug}`}
+                    className={`col-pill ${isColActive ? "active" : ""}`}
+                  >
+                    {col.name.replace(/^Bộ Sưu Tập\s*/i, "")}
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* 1. HERO BANNER LỚN VỚI TIÊU ĐỀ IN HOA MÀU TRẮNG CĂN GIỮA (GIỐNG MẪU ORIENTALE) */}
+            <section className="nx-orientale-hero-wrap">
+              <div className="nx-orientale-hero-banner">
+                <img
+                  src={activeCollectionInfo.bannerImage}
+                  alt={activeCollectionInfo.name}
+                  className="nx-orientale-hero-img"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    target.onerror = null;
+                    target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                  }}
+                />
+                <div className="nx-orientale-hero-overlay">
+                  <h1 className="nx-orientale-hero-title">
+                    <span>{activeCollectionInfo.name.toUpperCase()} –</span>
+                    <span>
+                      {(
+                        activeCollectionInfo.subtitle ||
+                        "CÂU CHUYỆN CỦA SỰ KHỞI ĐẦU"
+                      ).toUpperCase()}
                     </span>
-                    <Link to="/bo-suu-tap" className="col-back-all">
-                      ← Quay lại Lookbook tất cả bộ sưu tập
-                    </Link>
-                  </div>
+                  </h1>
                 </div>
               </div>
 
-              {/* Quick Collection Switcher Pills */}
-              <div className="col-pills-bar">
-                <Link to="/bo-suu-tap" className="col-pill">
-                  ← Tất cả Bộ sưu tập
-                </Link>
-                {collections.map((col) => {
-                  const isColActive =
-                    slug === col.slug ||
-                    Boolean(slug && col.aliases?.includes(slug));
+              {/* 2. DÒNG TRÍCH DẪN IN NGHIÊNG CĂN GIỮA NGAY DƯỚI BANNER */}
+              <p className="nx-orientale-quote">
+                {activeCollectionInfo.introQuote ||
+                  `“${activeCollectionInfo.name
+                    .replace(/^Bộ Sưu Tập\s*/i, "")
+                    .toUpperCase()}” – một cái tên đầy ý nghĩa với mong muốn tạo ra những kết nối từ khắp nơi trên thế giới, để cùng nhau dệt nên câu chuyện mới đầy cảm hứng và diệu kỳ.`}
+              </p>
+            </section>
+
+            {/* 3. CÂU CHUYỆN CHẤT LIỆU & BỘ ẢNH CHI TIẾT 2 CỘT SONG SONG */}
+            <section className="nx-orientale-editorial">
+              <h2 className="nx-orientale-story-heading">
+                {activeCollectionInfo.storyTitle ||
+                  "Chất liệu cao cấp tạo trải nghiệm đẳng cấp"}
+              </h2>
+              <p className="nx-orientale-story-text">
+                {activeCollectionInfo.description}
+              </p>
+
+              {/* Lưới 2 ảnh lớn song song (Giống hệt mẫu Nhà Xinh Orientale) */}
+              {(() => {
+                const imgs =
+                  activeCollectionInfo.galleryImages &&
+                  activeCollectionInfo.galleryImages.length > 0
+                    ? activeCollectionInfo.galleryImages
+                    : [
+                        activeCollectionInfo.bannerImage,
+                        "/uploads/collections/net-duong-dai.jpg",
+                      ];
+                const firstPair = imgs.slice(0, 2);
+                const restImages = imgs.slice(2);
+
+                return (
+                  <>
+                    <div className="nx-orientale-gallery-grid">
+                      {firstPair.map((imgUrl, idx) => (
+                        <div key={idx} className="nx-orientale-gallery-item">
+                          <img
+                            src={imgUrl}
+                            alt={`${activeCollectionInfo.name} - Chi tiết ${idx + 1}`}
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.onerror = null;
+                              target.src = activeCollectionInfo.bannerImage || DEFAULT_PLACEHOLDER_IMAGE;
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    {restImages.length > 0 && (
+                      <div className="nx-orientale-second-story">
+                        <h3 className="nx-orientale-story-heading">
+                          Thiết kế tinh tế trong từng đường nét – Đồng điệu mọi không gian sống
+                        </h3>
+                        <p className="nx-orientale-story-text">
+                          Từng chi tiết trong <strong>{activeCollectionInfo.name}</strong> được hoàn thiện tỉ mỉ với chất liệu chủ đạo{" "}
+                          <strong>{activeCollectionInfo.materials}</strong>, mang lại sự kết nối hài hòa giữa Phòng khách, Phòng ăn và Phòng ngủ — tạo nên tổ ấm sang trọng, ấm cúng và mang đậm dấu ấn cá nhân của gia chủ.
+                        </p>
+                        <div className="nx-orientale-gallery-grid">
+                          {restImages.map((imgUrl, idx) => (
+                            <div key={idx} className="nx-orientale-gallery-item">
+                              <img
+                                src={imgUrl}
+                                alt={`${activeCollectionInfo.name} - Không gian ${idx + 3}`}
+                                loading="lazy"
+                                onError={(e) => {
+                                  const target = e.currentTarget;
+                                  target.onerror = null;
+                                  target.src = activeCollectionInfo.bannerImage || DEFAULT_PLACEHOLDER_IMAGE;
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Nếu có bài viết chuyên sâu TipTap từ Backend gắn với Bộ sưu tập này */}
+              {activeCollectionArticle && activeCollectionArticle.content && (
+                <div className="nx-orientale-article-extra">
+                  {activeCollectionArticle.summary && (
+                    <p className="nx-orientale-story-text">
+                      {activeCollectionArticle.summary}
+                    </p>
+                  )}
+                  <div
+                    className="bst-editorial-body"
+                    dangerouslySetInnerHTML={{
+                      __html: activeCollectionArticle.content,
+                    }}
+                  />
+                </div>
+              )}
+            </section>
+
+            {/* 4. VIDEO GIỚI THIỆU BỘ SƯU TẬP (YOUTUBE / VIMEO HOẶC FILE MP4 TẢI LÊN) */}
+            {(() => {
+              const videoData = resolveVideoEmbed(activeCollectionInfo.videoUrl);
+              if (!videoData) return null;
+              return (
+                <section className="nx-orientale-video-section">
+                  <div className="nx-orientale-video-header">
+                    <span className="col-hero-eyebrow">
+                      VIDEO CẢM HỨNG & TRẢI NGHIỆM THỰC TẾ
+                    </span>
+                    <h2 className="nx-orientale-story-heading" style={{ margin: "6px 0 8px" }}>
+                      Khám Phá Không Gian Sống {activeCollectionInfo.name} Qua Video
+                    </h2>
+                    <p className="nx-orientale-story-text" style={{ marginBottom: "18px" }}>
+                      Cảm nhận trọn vẹn đường nét chế tác thủ công, sắc độ gỗ tự nhiên và sự kết hợp hài hòa của {activeCollectionInfo.name} trong không gian thực tế.
+                    </p>
+                  </div>
+
+                  <div className="nx-orientale-video-frame">
+                    {videoData.type === "iframe" ? (
+                      <iframe
+                        src={videoData.src}
+                        title={`Video ${activeCollectionInfo.name}`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="nx-orientale-video-el"
+                      />
+                    ) : (
+                      <video
+                        src={videoData.src}
+                        poster={activeCollectionInfo.bannerImage}
+                        controls
+                        playsInline
+                        className="nx-orientale-video-el"
+                      />
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* 5. DANH SÁCH SẢN PHẨM THUỘC BỘ SƯU TẬP */}
+            <section className="nx-orientale-products-section">
+              <div className="nx-orientale-products-header">
+                <div>
+                  <span className="col-hero-eyebrow">
+                    TRỌN BỘ THIẾT KẾ ĐỒNG BỘ • NHÀ XINH
+                  </span>
+                  <h2 className="nx-orientale-products-title">
+                    Sản Phẩm Thuộc {activeCollectionInfo.name} ({filtered.length})
+                  </h2>
+                </div>
+                <span className="text-xs text-stone-500">
+                  Chất liệu chủ đạo: <strong className="text-stone-800">{activeCollectionInfo.materials}</strong>
+                </span>
+              </div>
+
+              {/* Thanh lọc Không Gian Sống (Phòng khách, Phòng ăn, Phòng ngủ) */}
+              <div className="bst-room-nav">
+                {ROOM_FILTER_TABS.map((tab) => {
+                  const isActive =
+                    tab.id === "all"
+                      ? selectedCat === "all"
+                      : selectedCat === tab.categoryValue;
+                  const count = roomProductCounts[tab.id] ?? 0;
+                  const Icon = tab.icon;
+
                   return (
-                    <Link
-                      key={col.slug}
-                      to={`/bo-suu-tap/${col.slug}`}
-                      className={`col-pill ${isColActive ? "active" : ""}`}
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setSelectedCat(tab.categoryValue)}
+                      className={`bst-room-tab ${isActive ? "active" : ""}`}
                     >
-                      {col.name.replace("Bộ Sưu Tập ", "")} ({col.productCount})
-                    </Link>
+                      <Icon size={16} />
+                      <span>{tab.name}</span>
+                      <span className="bst-room-tab-count">{count}</span>
+                    </button>
                   );
                 })}
               </div>
-            </div>
 
-            {/* Horizontal Curated Filter Bar (khác biệt hoàn toàn với sidebar của /san-pham) */}
-            <div className="bst-detail-toolbar">
-              <div className="bst-detail-cats">
-                {categories.slice(0, 7).map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    className={`bst-style-pill ${selectedCat === cat ? "active" : ""}`}
-                    onClick={() => setSelectedCat(cat)}
-                  >
-                    {cat === "all" ? "Tất cả hạng mục" : cat}
-                  </button>
-                ))}
-              </div>
-
-              <div className="pl-toolbar">
-                <div className="pl-search-box">
-                  <Search size={15} className="pl-search-icon" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Tìm thiết kế trong bộ sưu tập..."
-                    className="pl-search-input"
-                  />
+              {/* Toolbar bộ lọc tìm kiếm & sắp xếp sản phẩm trong BST */}
+              <div className="bst-detail-toolbar">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    {selectedCat === "all" ? "Tất cả sản phẩm trong BST" : `Không gian: ${selectedCat}`}
+                  </span>
+                  <span className="text-xs text-slate-400">({filtered.length} thiết kế)</span>
                 </div>
 
-                <select
-                  className="pl-sort"
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortKey)}
-                >
-                  <option value="default">Sắp xếp: Mặc định</option>
-                  <option value="newest">Thiết kế mới nhất</option>
-                  <option value="price-asc">Giá: Thấp → Cao</option>
-                  <option value="price-desc">Giá: Cao → Thấp</option>
-                  <option value="name">Tên: A → Z</option>
-                </select>
-
-                <div className="pl-grid-btns">
-                  <button
-                    type="button"
-                    className={`pl-grid-btn ${gridCols === 3 ? "active" : ""}`}
-                    onClick={() => setGridCols(3)}
-                    aria-label="3 cột"
-                  >
-                    <Grid3X3 size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className={`pl-grid-btn ${gridCols === 4 ? "active" : ""}`}
-                    onClick={() => setGridCols(4)}
-                    aria-label="4 cột"
-                  >
-                    <LayoutGrid size={16} />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Products in this Collection */}
-            {loading && displayedProducts.length === 0 ? (
-              <div className="empty-state">
-                <p>Đang tải thiết kế trong bộ sưu tập...</p>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="empty-state">
-                <h2>Không tìm thấy thiết kế phù hợp</h2>
-                <p>Hãy thử đặt lại bộ lọc tìm kiếm trong bộ sưu tập này.</p>
-                <button
-                  type="button"
-                  className="btn-outline"
-                  onClick={handleResetFilters}
-                >
-                  <RotateCcw size={14} /> Đặt lại bộ lọc
-                </button>
-              </div>
-            ) : (
-              <>
-                <div
-                  className="product-grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-                  }}
-                >
-                  {displayedProducts.map((p) => (
-                    <ProductCard
-                      key={p.id}
-                      product={p}
-                      onAddToCart={store.addToCart}
-                      onToggleWishlist={store.toggleWishlist}
-                      isWishlisted={store.isWishlisted(p.id)}
+                <div className="pl-toolbar">
+                  <div className="pl-search-box">
+                    <Search size={15} className="pl-search-icon" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Tìm sản phẩm trong bộ sưu tập..."
+                      className="pl-search-input"
                     />
-                  ))}
+                  </div>
+
+                  <select
+                    className="pl-sort"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortKey)}
+                  >
+                    <option value="default">Sắp xếp: Mặc định</option>
+                    <option value="newest">Thiết kế mới nhất</option>
+                    <option value="price-asc">Giá: Thấp → Cao</option>
+                    <option value="price-desc">Giá: Cao → Thấp</option>
+                    <option value="name">Tên: A → Z</option>
+                  </select>
+
+                  <div className="pl-grid-btns">
+                    <button
+                      type="button"
+                      className={`pl-grid-btn ${gridCols === 3 ? "active" : ""}`}
+                      onClick={() => setGridCols(3)}
+                      aria-label="3 cột"
+                    >
+                      <Grid3X3 size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`pl-grid-btn ${gridCols === 4 ? "active" : ""}`}
+                      onClick={() => setGridCols(4)}
+                      aria-label="4 cột"
+                    >
+                      <LayoutGrid size={16} />
+                    </button>
+                  </div>
                 </div>
-                <div style={{ marginTop: "28px" }}>
-                  <AdminPagination
-                    pagination={pagination}
-                    itemLabel="thiết kế trong bộ sưu tập"
-                  />
+              </div>
+
+              {/* Lưới Sản phẩm thuộc Bộ sưu tập */}
+              {loading && displayedProducts.length === 0 ? (
+                <div className="empty-state">
+                  <p>Đang tải sản phẩm thuộc bộ sưu tập...</p>
                 </div>
-              </>
-            )}
+              ) : filtered.length === 0 ? (
+                <div className="empty-state">
+                  <h2>Chưa có sản phẩm phù hợp với bộ lọc</h2>
+                  <p>Hãy thử chọn không gian khác hoặc đặt lại bộ lọc tìm kiếm.</p>
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    onClick={handleResetFilters}
+                  >
+                    <RotateCcw size={14} /> Đặt lại bộ lọc
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div
+                    className="product-grid"
+                    style={{
+                      gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                    }}
+                  >
+                    {displayedProducts.map((p) => (
+                      <ProductCard
+                        key={p.id}
+                        product={p}
+                        onAddToCart={store.addToCart}
+                        onToggleWishlist={store.toggleWishlist}
+                        isWishlisted={store.isWishlisted(p.id)}
+                      />
+                    ))}
+                  </div>
+                  <div style={{ marginTop: "28px" }}>
+                    <AdminPagination
+                      pagination={pagination}
+                      itemLabel="sản phẩm trong bộ sưu tập"
+                    />
+                  </div>
+                </>
+              )}
+            </section>
+
+            {/* Banner tư vấn thiết kế & Trải nghiệm Showroom */}
+            <section className="bst-consult-banner">
+              <div className="bst-consult-info">
+                <span className="bst-consult-eyebrow">
+                  <Sparkles size={13} /> TRẢI NGHIỆM THỰC TẾ & TƯ VẤN THIẾT KẾ
+                </span>
+                <h3 className="bst-consult-title">
+                  Bạn muốn thiết kế ngôi nhà theo phong cách {activeCollectionInfo.name}?
+                </h3>
+                <p className="bst-consult-sub">
+                  Đội ngũ Kiến trúc sư Nhà Xinh sẵn sàng khảo sát, tư vấn bố trí không gian và phối cảnh
+                  3D hoàn toàn miễn phí, biến ý tưởng của bạn thành một tổ ấm đẳng cấp, tinh tế.
+                </p>
+              </div>
+              <div className="bst-consult-btns">
+                <a
+                  href={`https://zalo.me/0974933486?text=${encodeURIComponent(
+                    `Xin chào Nhà Xinh, tôi muốn được tư vấn thiết kế nội thất theo ${activeCollectionInfo.name}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bst-consult-btn-zalo"
+                >
+                  <MessageCircle size={17} />
+                  <span>Chat Zalo tư vấn (0974.933.486)</span>
+                </a>
+                <Link to="/tu-van-thiet-ke" className="bst-consult-btn-3d">
+                  <Calendar size={17} />
+                  <span>Đăng ký tư vấn 3D</span>
+                </Link>
+                <Link to="/he-thong-showroom" className="bst-consult-btn-showroom">
+                  <MapPin size={17} />
+                  <span>Hệ thống Showroom</span>
+                </Link>
+              </div>
+            </section>
 
             {/* Other Collections Showcase at Bottom */}
             <section className="bst-other-section">
@@ -482,10 +822,15 @@ export default function CollectionsPage() {
                           src={col.bannerImage}
                           alt={col.name}
                           loading="lazy"
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            target.onerror = null;
+                            target.src = DEFAULT_PLACEHOLDER_IMAGE;
+                          }}
                         />
                         <span className="col-card-style">{col.styleTag}</span>
                         <span className="col-card-count">
-                          {col.productCount} thiết kế
+                          {col.productCount || 0} thiết kế
                         </span>
                       </div>
                       <div className="col-card-body">
@@ -503,8 +848,111 @@ export default function CollectionsPage() {
         )}
       </main>
 
+      {/* ── MODAL ĐỌC CHI TIẾT BÀI VIẾT & XEM CẢ ẢNH LẪN SẢN PHẨM BỘ SƯU TẬP ── */}
+      {readingArticle &&
+        createPortal(
+          <div
+            className="bst-modal-overlay"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setReadingArticle(null);
+            }}
+          >
+            <div className="bst-modal-card">
+              <div className="bst-modal-header">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                    {readingArticle.category || "Bộ sưu tập"}
+                  </span>
+                  {readingArticle.collectionSlug && (
+                    <span className="px-2.5 py-1 rounded text-xs font-mono font-semibold bg-stone-100 text-stone-700">
+                      BST: {readingArticle.collectionSlug}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReadingArticle(null)}
+                  className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+                  title="Đóng (Esc)"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="bst-modal-body">
+                {/* 1. HIỂN THỊ CẢ ẢNH BÌA BÀI VIẾT */}
+                {readingArticle.image && (
+                  <img
+                    src={readingArticle.image}
+                    alt={readingArticle.title}
+                    className="bst-modal-cover"
+                  />
+                )}
+
+                <h2 className="text-2xl font-bold text-stone-900 leading-snug mb-2">
+                  {readingArticle.title}
+                </h2>
+
+                <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500 pb-3 mb-4 border-b border-stone-200">
+                  <span>Tác giả: <strong className="text-stone-700">{readingArticle.author}</strong></span>
+                  <span>•</span>
+                  <span>Ngày đăng: {readingArticle.createdAt}</span>
+                  <span>•</span>
+                  <span>{readingArticle.views} lượt xem</span>
+                </div>
+
+                {readingArticle.summary && (
+                  <div className="bst-editorial-lead mb-6">
+                    <p>{readingArticle.summary}</p>
+                  </div>
+                )}
+
+                {/* 2. NỘI DUNG TIPTAP VỚI CẢ CÁC HÌNH ẢNH MINH HỌA BÊN TRONG */}
+                <div
+                  className="bst-editorial-body"
+                  dangerouslySetInnerHTML={{ __html: readingArticle.content }}
+                />
+
+                {/* 3. CẢ CÁC SẢN PHẨM TRONG BỘ SƯU TẬP NẾU CÓ */}
+                {readingArticleProducts.length > 0 && (
+                  <div className="mt-10 pt-6 border-t border-stone-200">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <span className="col-hero-eyebrow">KHÔNG GIAN ĐỒNG BỘ</span>
+                        <h3 className="text-lg font-bold text-stone-900">
+                          Sản Phẩm Thuộc Bộ Sưu Tập Này ({readingArticleProducts.length})
+                        </h3>
+                      </div>
+                      {readingArticle.collectionSlug && (
+                        <Link
+                          to={`/bo-suu-tap/${readingArticle.collectionSlug}`}
+                          className="text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center gap-1"
+                          onClick={() => setReadingArticle(null)}
+                        >
+                          Khám phá trọn BST <ArrowRight size={14} />
+                        </Link>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {readingArticleProducts.slice(0, 6).map((p) => (
+                        <ProductCard
+                          key={p.id}
+                          product={p}
+                          onAddToCart={store.addToCart}
+                          onToggleWishlist={store.toggleWishlist}
+                          isWishlisted={store.isWishlisted(p.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
       <Footer />
     </>
   );
 }
-

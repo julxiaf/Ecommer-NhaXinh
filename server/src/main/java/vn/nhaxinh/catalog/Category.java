@@ -46,6 +46,18 @@ public class Category {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @Column(name = "is_deleted", nullable = false)
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @Column(name = "category_group", nullable = false, length = 50)
+    private String categoryGroup = "PRODUCT";
+
+    @Column(name = "created_by", length = 120)
+    private String createdBy;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -72,6 +84,12 @@ public class Category {
         }
         if (isActive == null) {
             isActive = true;
+        }
+        if (isDeleted == null) {
+            isDeleted = false;
+        }
+        if (categoryGroup == null || categoryGroup.isBlank()) {
+            categoryGroup = "PRODUCT";
         }
     }
 
@@ -144,6 +162,46 @@ public class Category {
         isActive = active;
     }
 
+    public Boolean getIsDeleted() {
+        return isDeleted;
+    }
+
+    public void setIsDeleted(Boolean isDeleted) {
+        this.isDeleted = isDeleted;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
+    }
+
+    public String getCategoryGroup() {
+        return categoryGroup != null && !categoryGroup.isBlank() ? categoryGroup : "PRODUCT";
+    }
+
+    public void setCategoryGroup(String categoryGroup) {
+        if (categoryGroup != null && !categoryGroup.isBlank()) {
+            this.categoryGroup = categoryGroup.trim().toUpperCase();
+        } else {
+            this.categoryGroup = "PRODUCT";
+        }
+    }
+
+    public Boolean getIsCollection() {
+        return "COLLECTION".equalsIgnoreCase(categoryGroup);
+    }
+
+    public void setIsCollection(Boolean isCollection) {
+        if (Boolean.TRUE.equals(isCollection)) {
+            this.categoryGroup = "COLLECTION";
+        } else if ("COLLECTION".equalsIgnoreCase(this.categoryGroup)) {
+            this.categoryGroup = "PRODUCT";
+        }
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -166,5 +224,13 @@ public class Category {
 
     public void setChildren(List<Category> children) {
         this.children = children;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
     }
 }

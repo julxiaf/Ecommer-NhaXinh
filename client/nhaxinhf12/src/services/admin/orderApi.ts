@@ -1,5 +1,6 @@
 import type { AdminOrder, AdminOrderItem, OrderStatusHistory } from "./types";
 import { API_BASE } from "../apiEndpoints";
+import { userService } from "../userService";
 
 interface ApiOrderItem {
   id: number;
@@ -41,6 +42,7 @@ interface ApiOrderSummary {
   paymentStatus: string;
   paymentMethod?: string | null;
   customerNote?: string | null;
+  createdBy?: string | null;
   createdAt: string;
   updatedAt?: string | null;
   totalItems?: number;
@@ -65,19 +67,36 @@ async function readError(response: Response): Promise<string> {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, retries = 2): Promise<T> {
   const url = path.startsWith("http") || path.startsWith(API_BASE) ? path : `${API_BASE}${path}`;
-  const response = await fetch(url, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
-  if (!response.ok) throw new Error(await readError(response));
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const method = (init?.method || "GET").toUpperCase();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...userService.getAuthHeaders(),
+          ...init?.headers,
+        },
+      });
+      if ((response.status === 502 || response.status === 503 || response.status === 504) && method === "GET" && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) throw new Error(await readError(response));
+      if (response.status === 204) return undefined as T;
+      return (await response.json()) as T;
+    } catch (err) {
+      if (method === "GET" && attempt < retries && err instanceof TypeError) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Không thể kết nối máy chủ backend.");
 }
 
 function mapStatusToFrontend(status?: string | null): AdminOrder["status"] {
@@ -208,6 +227,9 @@ export function orderFromApi(o: ApiOrderSummary): AdminOrder {
     phone: o.recipientPhone,
     email: o.recipientEmail || "",
     address: o.shippingAddress,
+    subtotal: o.subtotal != null ? Number(o.subtotal) : Number(o.totalAmount || 0),
+    discountAmount: o.discountAmount != null ? Number(o.discountAmount) : 0,
+    shippingFee: o.shippingFee != null ? Number(o.shippingFee) : 0,
     total: Number(o.totalAmount || 0),
     paymentMethod: mapPaymentMethodToFrontend(o.paymentMethod),
     paymentStatus: mapPaymentStatusToFrontend(o.paymentStatus),
@@ -215,6 +237,7 @@ export function orderFromApi(o: ApiOrderSummary): AdminOrder {
     createdAt: formatDateTime(o.createdAt),
     items,
     note: o.customerNote || undefined,
+    createdBy: o.createdBy || undefined,
     statusHistory,
   };
 }
@@ -250,6 +273,40 @@ export const orderApi = {
    */
   async getOrderDetail(id: string | number): Promise<AdminOrder> {
     const result = await request<ApiOrderSummary>(`/admin/orders/${id}`);
+    return orderFromApi(result);
+  },
+
+  /**
+   * Tạo mới đơn hàng / hóa đơn bán hàng tại quầy trên máy chủ và gửi email xác nhận
+   */
+  async createOrder(order: Omit<AdminOrder, "id" | "statusHistory">): Promise<AdminOrder> {
+    const result = await request<ApiOrderSummary>(`/admin/orders`, {
+      method: "POST",
+      body: JSON.stringify({
+        orderCode: order.orderCode,
+        customerName: order.customerName,
+        phone: order.phone,
+        email: order.email,
+        address: order.address,
+        subtotal: order.subtotal ?? order.total,
+        discountAmount: order.discountAmount ?? 0,
+        shippingFee: order.shippingFee ?? 0,
+        total: order.total,
+        paymentMethod: mapPaymentMethodToBackend(order.paymentMethod),
+        paymentStatus: mapPaymentStatusToBackend(order.paymentStatus || "pending"),
+        status: mapStatusToBackend(order.status || "confirmed"),
+        note: order.note,
+        createdBy: order.createdBy,
+        items: (order.items || []).map((it) => ({
+          productId: it.productId,
+          name: it.name,
+          variantSku: it.variantSku,
+          variantDetails: it.variantDetails,
+          price: it.price,
+          quantity: it.quantity,
+        })),
+      }),
+    });
     return orderFromApi(result);
   },
 

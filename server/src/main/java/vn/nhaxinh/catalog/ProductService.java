@@ -81,10 +81,10 @@ public class ProductService {
         return productRepository.findByStatus("ACTIVE", pageable);
     }
 
-    @Transactional(readOnly = true)
-    public Optional<Product> findById(Long id) {
-        return productRepository.findById(id);
-    }
+    // @Transactional(readOnly = true)
+    // public Optional<Product> findById(Long id) {
+    //     return productRepository.findById(id);
+    // }
 
     @Transactional(readOnly = true)
     public Optional<Product> findByIdAndStatus(Long id, String status) {
@@ -201,10 +201,24 @@ public class ProductService {
             }
         }
 
-        // 3. Lấy tên danh mục và thương hiệu
+        // 3. Lấy tên danh mục loại sản phẩm (ưu tiên nhóm PRODUCT, không lấy Bộ sưu tập) và thương hiệu
         String categoryName = null;
         if (p.getCategories() != null && !p.getCategories().isEmpty()) {
-            categoryName = p.getCategories().iterator().next().getName();
+            categoryName = p.getCategories().stream()
+                    .sorted(java.util.Comparator.comparingInt((Category c) -> {
+                        String grp = c.getCategoryGroup() != null ? c.getCategoryGroup().toUpperCase() : "PRODUCT";
+                        String nm = c.getName() != null ? c.getName().trim().toLowerCase() : "";
+                        boolean isCol = "COLLECTION".equals(grp)
+                                || Boolean.TRUE.equals(c.getIsCollection())
+                                || nm.startsWith("bộ sưu tập")
+                                || nm.startsWith("bo suu tap");
+                        if (isCol) return 2;
+                        if ("ROOM".equals(grp)) return 1;
+                        return 0;
+                    }).thenComparing(c -> c.getId() != null ? c.getId() : 0L))
+                    .map(Category::getName)
+                    .findFirst()
+                    .orElse(null);
         }
         String brandName = p.getBrand() != null ? p.getBrand().getName() : null;
 
@@ -233,7 +247,29 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<ProductDetailResponse> findAdminProducts() {
+        return findAdminProducts(false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductDetailResponse> findAdminProducts(boolean includeArchived) {
         return productRepository.findAll(Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.asc("name")))
+                .stream()
+                .filter(product -> includeArchived || (!Boolean.TRUE.equals(product.getIsDeleted()) && !"ARCHIVED".equalsIgnoreCase(product.getStatus())))
+                .map(product -> ProductDetailResponse.from(product, variantId -> {
+                    boolean isPre = Boolean.TRUE.equals(product.getIsPreorder()) || "PRE_ORDER".equalsIgnoreCase(product.getStockStatus());
+                    return inventoryService.findByVariantId(variantId)
+                            .map(inventory -> {
+                                int qty = Math.max(0, inventory.getQuantityOnHand() - inventory.getQuantityReserved());
+                                return new ProductDetailResponse.StockInfo(qty, qty > 0 && !isPre, isPre, isPre ? "PRE_ORDER" : (qty > 0 ? "IN_STOCK" : "OUT_OF_STOCK"));
+                            })
+                            .orElse(new ProductDetailResponse.StockInfo(0, false, isPre, isPre ? "PRE_ORDER" : "OUT_OF_STOCK"));
+                }))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductDetailResponse> findTrashProducts() {
+        return productRepository.findByIsDeletedTrue(Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.asc("name")))
                 .stream()
                 .map(product -> ProductDetailResponse.from(product, variantId -> {
                     boolean isPre = Boolean.TRUE.equals(product.getIsPreorder()) || "PRE_ORDER".equalsIgnoreCase(product.getStockStatus());
@@ -248,17 +284,22 @@ public class ProductService {
     }
 
     public ProductDetailResponse createProduct(CreateProductRequest request, List<MultipartFile> files) {
-        if (productRepository.existsBySlug(request.slug())) {
-            throw new IllegalArgumentException("Slug sản phẩm đã tồn tại");
-        }
+        return createProduct(request, files, null);
+    }
+
+    public ProductDetailResponse createProduct(CreateProductRequest request, List<MultipartFile> files, String createdBy) {
+        String uniqueSlug = resolveUniqueSlug(request.slug(), null);
 
         Product product = new Product();
         product.setName(request.name().trim());
-        product.setSlug(request.slug());
+        product.setSlug(uniqueSlug);
         product.setShortDescription(request.shortDescription());
         product.setDescription(request.description());
         product.setSpecifications(request.specifications());
         product.setStatus(request.status() == null ? "DRAFT" : request.status());
+        product.setIsPreorder(Boolean.TRUE.equals(request.isPreorder()));
+        product.setStockStatus(request.stockStatus() != null ? request.stockStatus() : (Boolean.TRUE.equals(request.isPreorder()) ? "PRE_ORDER" : "IN_STOCK"));
+        product.setCreatedBy(createdBy != null && !createdBy.isBlank() ? createdBy.trim() : "Quản trị viên");
         if (request.brandId() != null) {
             product.setBrand(brandRepository.findById(request.brandId())
                     .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thương hiệu")));
@@ -386,29 +427,42 @@ public class ProductService {
     public ProductDetailResponse updateProduct(Long id, CreateProductRequest request, List<MultipartFile> files) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm"));
-        if (productRepository.existsBySlugAndIdNot(request.slug(), id)) {
-            throw new IllegalArgumentException("Slug sản phẩm đã tồn tại");
-        }
+        String uniqueSlug = resolveUniqueSlug(request.slug(), id);
 
         // 1. Phân tích chi tiết thay đổi thuộc tính sản phẩm (update gì)
         Map<String, Object> productChanges = new LinkedHashMap<>();
         if (!Objects.equals(product.getName(), request.name().trim())) {
             productChanges.put("name", Map.of("old", product.getName(), "new", request.name().trim()));
         }
-        if (!Objects.equals(product.getSlug(), request.slug())) {
-            productChanges.put("slug", Map.of("old", product.getSlug(), "new", request.slug()));
+        if (!Objects.equals(product.getSlug(), uniqueSlug)) {
+            productChanges.put("slug", Map.of("old", product.getSlug(), "new", uniqueSlug));
         }
         if (request.status() != null && !Objects.equals(product.getStatus(), request.status())) {
             productChanges.put("status", Map.of("old", product.getStatus(), "new", request.status()));
         }
         if (!Objects.equals(product.getShortDescription(), request.shortDescription())) {
-            productChanges.put("shortDescription", "Đã cập nhật mô tả ngắn");
+            productChanges.put("shortDescription", Map.of(
+                    "old", String.valueOf(product.getShortDescription()),
+                    "new", String.valueOf(request.shortDescription())
+            ));
         }
         if (!Objects.equals(product.getDescription(), request.description())) {
-            productChanges.put("description", "Đã cập nhật mô tả chi tiết");
+            productChanges.put("description", Map.of(
+                    "oldLength", product.getDescription() != null ? product.getDescription().length() : 0,
+                    "newLength", request.description() != null ? request.description().length() : 0
+            ));
         }
         if (!Objects.equals(product.getSpecifications(), request.specifications())) {
-            productChanges.put("specifications", "Đã cập nhật thông số kỹ thuật");
+            productChanges.put("specifications", Map.of(
+                    "old", String.valueOf(product.getSpecifications()),
+                    "new", String.valueOf(request.specifications())
+            ));
+        }
+        if (request.isPreorder() != null && !Objects.equals(product.getIsPreorder(), request.isPreorder())) {
+            productChanges.put("isPreorder", Map.of("old", String.valueOf(product.getIsPreorder()), "new", String.valueOf(request.isPreorder())));
+        }
+        if (request.stockStatus() != null && !Objects.equals(product.getStockStatus(), request.stockStatus())) {
+            productChanges.put("stockStatus", Map.of("old", String.valueOf(product.getStockStatus()), "new", String.valueOf(request.stockStatus())));
         }
         Long oldBrandId = product.getBrand() != null ? product.getBrand().getId() : null;
         if (!Objects.equals(oldBrandId, request.brandId())) {
@@ -464,6 +518,14 @@ public class ProductService {
                 if (!"ACTIVE".equals(existing.getStatus())) {
                     varFieldChanges.put("status", Map.of("old", existing.getStatus(), "new", "ACTIVE"));
                 }
+                if (vr.initialStock() != null && existing.getId() != null) {
+                    Optional<Inventory> invOpt = inventoryService.findByVariantId(existing.getId());
+                    int oldAvailable = invOpt.map(Inventory::getAvailableQuantity).orElse(0);
+                    int newAvailable = Math.max(0, vr.initialStock());
+                    if (oldAvailable != newAvailable) {
+                        varFieldChanges.put("stock", Map.of("old", oldAvailable, "new", newAvailable));
+                    }
+                }
                 if (!varFieldChanges.isEmpty()) {
                     updatedVariants.add(Map.of("sku", cleanSku, "changes", varFieldChanges));
                 }
@@ -483,12 +545,23 @@ public class ProductService {
 
         // 3. Tiến hành cập nhật
         product.setName(request.name().trim());
-        product.setSlug(request.slug());
+        product.setSlug(uniqueSlug);
         product.setShortDescription(request.shortDescription());
         product.setDescription(request.description());
         product.setSpecifications(request.specifications());
         if (request.status() != null) {
             product.setStatus(request.status());
+        }
+        if (request.isPreorder() != null) {
+            product.setIsPreorder(request.isPreorder());
+            if (Boolean.TRUE.equals(request.isPreorder())) {
+                product.setStockStatus("PRE_ORDER");
+            } else if ("PRE_ORDER".equalsIgnoreCase(product.getStockStatus())) {
+                product.setStockStatus("IN_STOCK");
+            }
+        }
+        if (request.stockStatus() != null && !request.stockStatus().isBlank()) {
+            product.setStockStatus(request.stockStatus());
         }
         product.setBrand(request.brandId() == null ? null : brandRepository.findById(request.brandId())
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thương hiệu")));
@@ -505,7 +578,7 @@ public class ProductService {
         addMedia(product, mediaRequests, uploadedFiles);
 
         Product savedProduct = productRepository.saveAndFlush(product);
-        createInitialInventoryForNewVariants(savedProduct, request.variants());
+        reconcileInventoryForVariants(savedProduct, request.variants());
 
         // 4. Ghi log chi tiết SLF4J
         log.info("[PRODUCT-UPDATE] Cập nhật sản phẩm id={} code='{}' | Thuộc tính thay đổi: {} | Biến thể thêm mới ({}): {} | Biến thể cập nhật ({}): {} | Biến thể vô hiệu hóa ({}): {}",
@@ -535,6 +608,13 @@ public class ProductService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm"));
         String oldStatus = product.getStatus();
         product.setStatus(status);
+        if ("ARCHIVED".equalsIgnoreCase(status)) {
+            product.setIsDeleted(true);
+            product.setDeletedAt(java.time.LocalDateTime.now());
+        } else {
+            product.setIsDeleted(false);
+            product.setDeletedAt(null);
+        }
         productRepository.save(product);
 
         log.info("[PRODUCT-STATUS] Đổi trạng thái sản phẩm id={} (tên='{}'): {} -> {}",
@@ -620,7 +700,7 @@ public class ProductService {
         variant.setStatus("ACTIVE");
     }
 
-    private void createInitialInventoryForNewVariants(
+    private void reconcileInventoryForVariants(
             Product product,
             List<CreateProductRequest.VariantRequest> requests
     ) {
@@ -632,20 +712,47 @@ public class ProductService {
             if (variant == null || variant.getId() == null) {
                 continue;
             }
-            if (inventoryService.findByVariantId(variant.getId()).isPresent()) {
-                continue;
-            }
-            int quantity = request.initialStock() == null ? 0 : Math.max(0, request.initialStock());
-            inventoryService.save(new Inventory(variant, quantity, 0, 0));
-            if (quantity > 0) {
-                InventoryMovement movement = new InventoryMovement();
-                movement.setVariant(variant);
-                movement.setMovementType("IN");
-                movement.setQuantity(quantity);
-                movement.setReferenceType("PRODUCT_CREATE");
-                movement.setReferenceId(product.getId());
-                movement.setNote("Tồn kho khởi tạo cho biến thể");
-                inventoryService.recordMovement(movement);
+            int requestedStock = request.initialStock() == null ? 0 : Math.max(0, request.initialStock());
+            Optional<Inventory> invOpt = inventoryService.findByVariantId(variant.getId());
+            if (invOpt.isPresent()) {
+                Inventory inventory = invOpt.get();
+                int currentOnHand = inventory.getQuantityOnHand() != null ? inventory.getQuantityOnHand() : 0;
+                int currentReserved = inventory.getQuantityReserved() != null ? inventory.getQuantityReserved() : 0;
+                int currentAvailable = Math.max(0, currentOnHand - currentReserved);
+
+                // Admin giao diện quản lý tồn kho khả dụng (Available).
+                // Tổng tồn kho vật lý (onHand) phải luôn >= tồn kho đã giữ chỗ (reserved).
+                // Do đó targetOnHand = requestedStock + currentReserved để availableQuantity = requestedStock.
+                int targetOnHand = requestedStock + currentReserved;
+
+                if (request.initialStock() != null && currentOnHand != targetOnHand) {
+                    inventory.setQuantityOnHand(targetOnHand);
+                    inventoryService.save(inventory);
+
+                    int diff = targetOnHand - currentOnHand;
+                    InventoryMovement movement = new InventoryMovement();
+                    movement.setVariant(variant);
+                    movement.setMovementType(diff > 0 ? "IN" : "OUT");
+                    movement.setQuantity(Math.abs(diff));
+                    movement.setReferenceType("ADMIN_ADJUST");
+                    movement.setReferenceId(product.getId());
+                    movement.setNote("Điều chỉnh tồn kho khi cập nhật sản phẩm: khả dụng " + currentAvailable + " -> " + requestedStock + ", tổng kho " + currentOnHand + " -> " + targetOnHand);
+                    inventoryService.recordMovement(movement);
+                    log.info("[INVENTORY-UPDATE] Variant sku='{}' (id={}) cập nhật tồn kho: onHand {} -> {}, available {} -> {} (diff={})",
+                            variant.getSku(), variant.getId(), currentOnHand, targetOnHand, currentAvailable, requestedStock, diff);
+                }
+            } else {
+                inventoryService.save(new Inventory(variant, requestedStock, 0, 0));
+                if (requestedStock > 0) {
+                    InventoryMovement movement = new InventoryMovement();
+                    movement.setVariant(variant);
+                    movement.setMovementType("IN");
+                    movement.setQuantity(requestedStock);
+                    movement.setReferenceType("PRODUCT_CREATE");
+                    movement.setReferenceId(product.getId());
+                    movement.setNote("Tồn kho khởi tạo cho biến thể");
+                    inventoryService.recordMovement(movement);
+                }
             }
         }
     }
@@ -736,8 +843,54 @@ public class ProductService {
         }
     }
 
+    public void softDelete(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm id=" + id));
+        product.setIsDeleted(true);
+        product.setDeletedAt(java.time.LocalDateTime.now());
+        product.setStatus("ARCHIVED");
+        productRepository.save(product);
+
+        log.warn("[PRODUCT-SOFT-DELETE] Đã xóa mềm sản phẩm id={} name='{}'", id, product.getName());
+        recordAudit("PRODUCT_SOFT_DELETED", "PRODUCT", id, Map.of(
+                "productId", id,
+                "productName", product.getName(),
+                "status", "ARCHIVED",
+                "isDeleted", true
+        ));
+    }
+
+    public void restore(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm id=" + id));
+        product.setIsDeleted(false);
+        product.setDeletedAt(null);
+        product.setStatus("ACTIVE");
+        productRepository.save(product);
+
+        log.info("[PRODUCT-RESTORE] Đã khôi phục sản phẩm id={} name='{}'", id, product.getName());
+        recordAudit("PRODUCT_RESTORED", "PRODUCT", id, Map.of(
+                "productId", id,
+                "productName", product.getName(),
+                "status", "ACTIVE",
+                "isDeleted", false
+        ));
+    }
+
+    public void permanentDelete(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm id=" + id));
+        productRepository.delete(product);
+
+        log.warn("[PRODUCT-PERMANENT-DELETE] Đã xóa vĩnh viễn sản phẩm id={} name='{}'", id, product.getName());
+        recordAudit("PRODUCT_PERMANENT_DELETED", "PRODUCT", id, Map.of(
+                "productId", id,
+                "productName", product.getName()
+        ));
+    }
+
     public void deleteById(Long id) {
-        productRepository.deleteById(id);
+        softDelete(id);
     }
 
     @Transactional(readOnly = true)
@@ -816,5 +969,37 @@ public class ProductService {
         }
 
         return null;
+    }
+
+    public boolean existsBySlug(String slug) {
+        return slug != null && productRepository.existsBySlug(slug.trim());
+    }
+
+    public boolean existsBySlugAndIdNot(String slug, Long id) {
+        return slug != null && productRepository.existsBySlugAndIdNot(slug.trim(), id);
+    }
+
+    /**
+     * Tự động xử lý trùng slug sản phẩm: Nếu slug đã tồn tại ở sản phẩm khác,
+     * tự động chuẩn hóa và thêm hậu tố -1, -2, -3... đảm bảo tính duy nhất và an toàn.
+     */
+    public String resolveUniqueSlug(String inputSlug, Long currentProductId) {
+        String base = (inputSlug == null || inputSlug.isBlank()) ? "san-pham" : inputSlug.trim().toLowerCase();
+        base = base.replaceAll("[^a-z0-9-]+", "-").replaceAll("^-+|-+$", "");
+        if (base.isBlank()) {
+            base = "san-pham-" + System.currentTimeMillis();
+        }
+
+        String candidate = base;
+        int count = 1;
+        while (currentProductId == null
+                ? productRepository.existsBySlug(candidate)
+                : productRepository.existsBySlugAndIdNot(candidate, currentProductId)) {
+            candidate = base + "-" + count++;
+        }
+        if (!candidate.equals(inputSlug)) {
+            log.info("[PRODUCT-SLUG-AUTO-RESOLVE] Slug '{}' bị trùng lặp, hệ thống tự động gán slug duy nhất '{}'", inputSlug, candidate);
+        }
+        return candidate;
     }
 }

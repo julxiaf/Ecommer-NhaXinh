@@ -71,6 +71,9 @@ public class Order {
     @Column(name = "customer_note", length = 1000)
     private String customerNote;
 
+    @Column(name = "created_by", length = 120)
+    private String createdBy;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -235,6 +238,14 @@ public class Order {
 
     public void setCustomerNote(String customerNote) {
         this.customerNote = customerNote;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
     }
 
     public LocalDateTime getCreatedAt() {

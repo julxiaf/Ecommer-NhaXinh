@@ -14,6 +14,7 @@ import type { AdminProductInput } from "../../services/admin/catalogApi";
 import type { AdminViewTab } from "../../components/admin/AdminSidebar";
 import type { NewOrderAlertData } from "../../components/admin/NewOrderAlertToast";
 import { chatbotService } from "../../services/chatbotService";
+import type { AuthSession } from "../../services/userService";
 
 /**
  * Phát chuông báo âm thanh dạng Web Audio API (không cần file mp3 ngoài)
@@ -61,6 +62,8 @@ const PATH_TO_TAB: Record<string, AdminViewTab> = {
   "tong-quan": "dashboard",
   "categories": "categories",
   "danh-muc": "categories",
+  "collections": "collections",
+  "bo-suu-tap": "collections",
   "products": "products",
   "san-pham": "products",
   "orders": "orders",
@@ -88,7 +91,7 @@ const PATH_TO_TAB: Record<string, AdminViewTab> = {
   "cai-dat": "settings",
 };
 
-export function useAdminPortal() {
+export function useAdminPortal(session?: AuthSession | null) {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -133,14 +136,29 @@ export function useAdminPortal() {
     [location.pathname, navigate]
   );
 
+  const normalizedSessionRoles = useMemo(
+    () =>
+      (session?.roles || []).map((r) =>
+        String(r).replace(/^ROLE_/i, "").trim().toUpperCase()
+      ),
+    [session?.roles]
+  );
+
   const [roles, setRoles] = useState<RoleDefinition[]>([]);
-  const [currentRole, setCurrentRole] = useState<RoleDefinition>({
-    id: "admin",
-    name: "Quản trị viên tối cao",
-    code: "ADMIN",
-    description: "Toàn quyền hệ thống",
-    permissions: [],
-    isSystem: true,
+  const [currentRole, setCurrentRole] = useState<RoleDefinition>(() => {
+    const primaryRoleCode =
+      normalizedSessionRoles.find((r) => r === "SUPER_ADMIN" || r === "ADMIN") ||
+      normalizedSessionRoles.find((r) => r !== "CUSTOMER") ||
+      "ADMIN";
+    const isTopAdmin = primaryRoleCode === "ADMIN" || primaryRoleCode === "SUPER_ADMIN";
+    return {
+      id: primaryRoleCode.toLowerCase(),
+      name: isTopAdmin ? "Quản trị viên tối cao" : `Nhân sự (${primaryRoleCode})`,
+      code: primaryRoleCode,
+      description: isTopAdmin ? "Toàn quyền hệ thống" : "Quyền vận hành theo phân công",
+      permissions: (session?.permissions || []) as PermissionKey[],
+      isSystem: true,
+    };
   });
 
   const [categories, setCategories] = useState<AdminCategory[]>([]);
@@ -158,11 +176,12 @@ export function useAdminPortal() {
   const [activeChatCount, setActiveChatCount] = useState<number>(0);
 
   const knownOrderIdsRef = useRef<Set<string>>(new Set());
+  const knownOrderPaymentMapRef = useRef<Map<string, string>>(new Map());
   const isInitialLoadRef = useRef(true);
 
   const currentActor = {
-    name: "admin",
-    email: "admin@nhaxinh.com",
+    name: session?.fullName || session?.username || "admin",
+    email: session?.email || "admin@nhaxinh.com",
     role: currentRole.name,
   };
 
@@ -189,15 +208,23 @@ export function useAdminPortal() {
         ]);
 
         if (loadedRoles && loadedRoles.length > 0) {
-          const defaultAdmin = loadedRoles.find((r) => r.code === "ADMIN" || r.code === "SUPER_ADMIN") || loadedRoles[0];
+          const matchedRole =
+            loadedRoles.find((r) =>
+              normalizedSessionRoles.includes(String(r.code).toUpperCase())
+            ) ||
+            loadedRoles.find((r) => r.code === "ADMIN" || r.code === "SUPER_ADMIN") ||
+            loadedRoles[0];
           setRoles(loadedRoles);
-          setCurrentRole(defaultAdmin);
+          setCurrentRole(matchedRole);
         }
         setCategories(loadedCats || []);
         setProducts(loadedProds || []);
         setOrders(loadedOrders || []);
         if (loadedOrders && loadedOrders.length > 0) {
-          loadedOrders.forEach((o) => knownOrderIdsRef.current.add(String(o.id)));
+          loadedOrders.forEach((o) => {
+            knownOrderIdsRef.current.add(String(o.id));
+            knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
+          });
         }
         isInitialLoadRef.current = false;
 
@@ -229,7 +256,10 @@ export function useAdminPortal() {
         if (!latestOrders || latestOrders.length === 0) return;
 
         if (isInitialLoadRef.current || knownOrderIdsRef.current.size === 0) {
-          latestOrders.forEach((o) => knownOrderIdsRef.current.add(String(o.id)));
+          latestOrders.forEach((o) => {
+            knownOrderIdsRef.current.add(String(o.id));
+            knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
+          });
           isInitialLoadRef.current = false;
           return;
         }
@@ -237,6 +267,21 @@ export function useAdminPortal() {
         const newlyArrivedOrders = latestOrders.filter(
           (o) => !knownOrderIdsRef.current.has(String(o.id))
         );
+
+        // Phát hiện các đơn đã tồn tại vừa chuyển sang đã thanh toán (VNPAY/VietQR/Khách thanh toán)
+        const newlyPaidOrders = latestOrders.filter((o) => {
+          const prevPayment = knownOrderPaymentMapRef.current.get(String(o.id));
+          return (
+            knownOrderIdsRef.current.has(String(o.id)) &&
+            prevPayment &&
+            prevPayment !== "paid" &&
+            o.paymentStatus === "paid"
+          );
+        });
+
+        latestOrders.forEach((o) => {
+          knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
+        });
 
         if (newlyArrivedOrders.length > 0) {
           newlyArrivedOrders.forEach((o) => knownOrderIdsRef.current.add(String(o.id)));
@@ -283,6 +328,41 @@ export function useAdminPortal() {
               total: Number(newOrd.total) || 0,
               itemsCount: itemCount,
               createdAt: "Vừa xong",
+              alertType: "customer_order",
+            });
+          }
+        }
+
+        if (newlyPaidOrders.length > 0) {
+          setOrders(latestOrders);
+          playNotificationSound();
+
+          for (const paidOrd of newlyPaidOrders) {
+            const customer = paidOrd.customerName || "Khách hàng";
+            const totalStr = Number(paidOrd.total).toLocaleString("vi-VN") + " ₫";
+            const itemCount = paidOrd.items ? paidOrd.items.length : 1;
+
+            const notifTitle = `Thanh toán thành công #${paidOrd.orderCode}`;
+            const notifMsg = `Đơn hàng #${paidOrd.orderCode} của ${customer} đã thanh toán thành công ${totalStr} qua ${paidOrd.paymentMethod || "Online"}.`;
+
+            const createdNotif = await adminApi.createNotification({
+              title: notifTitle,
+              message: notifMsg,
+              type: "order",
+              target: "all",
+            });
+
+            setNotifications((prev) => [createdNotif, ...prev]);
+
+            setNewOrderAlert({
+              id: String(paidOrd.id),
+              orderCode: paidOrd.orderCode,
+              customerName: customer,
+              total: Number(paidOrd.total) || 0,
+              itemsCount: itemCount,
+              createdAt: "Vừa xong",
+              alertType: "payment_confirmed",
+              paymentMethod: paidOrd.paymentMethod || "VNPAY / Chuyển khoản",
             });
           }
         }
@@ -306,6 +386,7 @@ export function useAdminPortal() {
   const tabTitles: Record<AdminViewTab, string> = {
     dashboard: "Bảng điều khiển & Doanh số",
     categories: "Cấu trúc danh mục phân cấp",
+    collections: "Quản lý Bộ sưu tập thiết kế",
     products: "Quản lý sản phẩm & Biến thể",
     orders: "Quản lý đơn hàng & Tiến độ giao",
     discounts: "Mã giảm giá & Khuyến mãi",
@@ -329,8 +410,8 @@ export function useAdminPortal() {
     setAuditLogs([]);
   };
 
-  const handleSaveCategory = async (cat: Partial<AdminCategory>) => {
-    await adminApi.saveCategory(cat, currentActor);
+  const handleSaveCategory = async (cat: Partial<AdminCategory>, imageFile?: File | null) => {
+    await adminApi.saveCategory(cat, imageFile, currentActor);
     setCategories(await adminApi.getCategories(true));
     handleRefreshLogs();
   };
@@ -348,21 +429,60 @@ export function useAdminPortal() {
   };
 
   const handleSaveProduct = async (prod: AdminProductInput) => {
+    const isEdit = Boolean(prod.id);
     await adminApi.saveProduct(prod, currentActor);
     setProducts(await adminApi.getProducts(true));
     handleRefreshLogs();
+    try {
+      await adminApi.createNotification({
+        title: isEdit ? "Cập nhật sản phẩm" : "Thêm mới sản phẩm",
+        message: `${currentActor.name} vừa ${isEdit ? "cập nhật" : "thêm mới"} sản phẩm "${prod.name}"`,
+        type: "system",
+        target: "all",
+      });
+      setNotifications(await adminApi.getNotifications());
+      playNotificationSound();
+    } catch {
+      // Bỏ qua lỗi phát chuông nếu trình duyệt chặn
+    }
   };
 
   const handleDeleteProduct = async (id: number) => {
+    const target = products.find((p) => p.id === id);
     await adminApi.softDeleteProduct(id, currentActor);
     setProducts(await adminApi.getProducts(true));
     handleRefreshLogs();
+    try {
+      await adminApi.createNotification({
+        title: "Xóa sản phẩm vào thùng rác",
+        message: `${currentActor.name} vừa xóa sản phẩm "${target?.name || id}" vào thùng rác`,
+        type: "system",
+        target: "all",
+      });
+      setNotifications(await adminApi.getNotifications());
+      playNotificationSound();
+    } catch {
+      // Bỏ qua lỗi phát chuông
+    }
   };
 
   const handleRestoreProduct = async (id: number) => {
+    const target = products.find((p) => p.id === id);
     await adminApi.restoreProduct(id, currentActor);
     setProducts(await adminApi.getProducts(true));
     handleRefreshLogs();
+    try {
+      await adminApi.createNotification({
+        title: "Khôi phục sản phẩm",
+        message: `${currentActor.name} vừa khôi phục sản phẩm "${target?.name || id}" từ thùng rác`,
+        type: "system",
+        target: "all",
+      });
+      setNotifications(await adminApi.getNotifications());
+      playNotificationSound();
+    } catch {
+      // Bỏ qua lỗi phát chuông
+    }
   };
 
   const handleRestockProduct = async (id: number, amount: number) => {
@@ -375,10 +495,13 @@ export function useAdminPortal() {
     orderId: string,
     newStatus: AdminOrder["status"],
     note?: string
-  ) => {
-    await adminApi.updateOrderStatus(orderId, newStatus, currentActor.name, note, currentActor);
-    setOrders(await adminApi.getOrders());
-    handleRefreshLogs();
+  ): Promise<AdminOrder> => {
+    const updated = await adminApi.updateOrderStatus(orderId, newStatus, currentActor.name, note, currentActor);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, ...updated, isDeleted: o.isDeleted } : o))
+    );
+    void handleRefreshLogs();
+    return updated;
   };
 
   const handleConfirmOrderPayment = async (
@@ -386,29 +509,131 @@ export function useAdminPortal() {
     paymentStatus = "paid",
     paymentMethod?: string,
     note?: string
-  ) => {
-    await adminApi.confirmOrderPayment(orderId, currentActor, paymentStatus, paymentMethod, note);
-    setOrders(await adminApi.getOrders());
-    handleRefreshLogs();
+  ): Promise<AdminOrder> => {
+    const target = orders.find((o) => String(o.id) === String(orderId));
+    const updated = await adminApi.confirmOrderPayment(orderId, currentActor, paymentStatus, paymentMethod, note);
+    knownOrderPaymentMapRef.current.set(String(orderId), paymentStatus);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, ...updated, isDeleted: o.isDeleted } : o))
+    );
+    void handleRefreshLogs();
+
+    if (paymentStatus === "paid") {
+      const resolvedOrd = updated || target;
+      const code = resolvedOrd?.orderCode || orderId;
+      const customer = resolvedOrd?.customerName || "Khách hàng";
+      const totalNum = Number(resolvedOrd?.total) || 0;
+      const methodStr = paymentMethod || resolvedOrd?.paymentMethod || "Chuyển khoản / VNPAY";
+
+      void (async () => {
+        try {
+          playNotificationSound();
+          const createdNotif = await adminApi.createNotification({
+            title: `Đã xác nhận thanh toán #${code}`,
+            message: `${currentActor.name} xác nhận thanh toán đơn #${code} (${customer} • ${totalNum.toLocaleString("vi-VN")} ₫) qua ${methodStr}.`,
+            type: "order",
+            target: "all",
+          });
+          setNotifications((prev) => [createdNotif, ...prev]);
+
+          setNewOrderAlert({
+            id: String(orderId),
+            orderCode: String(code),
+            customerName: customer,
+            total: totalNum,
+            itemsCount: resolvedOrd?.items?.length || 1,
+            createdAt: "Vừa xong",
+            alertType: "payment_confirmed",
+            actorName: currentActor.name,
+            paymentMethod: methodStr,
+          });
+        } catch {
+          // ignore sound/notif error
+        }
+      })();
+    }
+
+    return updated;
   };
 
   const handleUpdateOrderShipping = async (
     orderId: string,
     data: { recipientName: string; recipientPhone: string; shippingAddress: string; customerNote?: string }
-  ) => {
-    await adminApi.updateOrderShipping(orderId, data, currentActor);
-    setOrders(await adminApi.getOrders());
-    handleRefreshLogs();
+  ): Promise<AdminOrder> => {
+    const updated = await adminApi.updateOrderShipping(orderId, data, currentActor);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, ...updated, isDeleted: o.isDeleted } : o))
+    );
+    void handleRefreshLogs();
+    return updated;
   };
 
-  const handleCancelOrder = async (orderId: string, reason: string) => {
-    await adminApi.cancelOrder(orderId, reason, currentActor);
-    setOrders(await adminApi.getOrders());
-    handleRefreshLogs();
+  const handleCancelOrder = async (orderId: string, reason: string): Promise<AdminOrder> => {
+    const updated = await adminApi.cancelOrder(orderId, reason, currentActor);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, ...updated, isDeleted: o.isDeleted } : o))
+    );
+    void handleRefreshLogs();
+    return updated;
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    await adminApi.deleteOrder(orderId, currentActor);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, isDeleted: true } : o))
+    );
+    void handleRefreshLogs();
+  };
+
+  const handleRestoreOrder = async (orderId: string) => {
+    await adminApi.restoreOrder(orderId, currentActor);
+    setOrders((prev) =>
+      prev.map((o) => (String(o.id) === String(orderId) ? { ...o, isDeleted: false } : o))
+    );
+    void handleRefreshLogs();
   };
 
   const handleRefreshOrders = async () => {
     setOrders(await adminApi.getOrders());
+  };
+
+  const handleCreateOrder = async (orderData: Omit<AdminOrder, "id" | "statusHistory">) => {
+    const created = await adminApi.createOrder(orderData, currentActor);
+    knownOrderIdsRef.current.add(String(created.id));
+    knownOrderPaymentMapRef.current.set(String(created.id), created.paymentStatus || "unpaid");
+    setOrders((prev) => [created, ...prev]);
+    handleRefreshLogs();
+
+    try {
+      playNotificationSound();
+      const customer = created.customerName || "Khách hàng";
+      const totalNum = Number(created.total) || 0;
+      const itemCount = created.items ? created.items.length : 1;
+
+      const createdNotif = await adminApi.createNotification({
+        title: `NV tạo đơn mới #${created.orderCode}`,
+        message: `${currentActor.name} vừa tạo đơn hàng #${created.orderCode} cho khách ${customer} (${totalNum.toLocaleString("vi-VN")} ₫ • ${itemCount} SP).`,
+        type: "order",
+        target: "all",
+      });
+      setNotifications((prev) => [createdNotif, ...prev]);
+
+      setNewOrderAlert({
+        id: String(created.id),
+        orderCode: created.orderCode,
+        customerName: customer,
+        total: totalNum,
+        itemsCount: itemCount,
+        createdAt: "Vừa xong",
+        alertType: "staff_order",
+        actorName: currentActor.name,
+        paymentMethod: created.paymentMethod,
+      });
+    } catch {
+      // ignore sound/notif error
+    }
+
+    return created;
   };
 
   const handleUpdateRolePermissions = async (
@@ -499,6 +724,16 @@ export function useAdminPortal() {
     setArticles(await adminApi.getArticles());
   };
 
+  const handleRestoreArticle = async (id: string) => {
+    await adminApi.restoreArticle(id);
+    setArticles(await adminApi.getArticles());
+  };
+
+  const handleToggleArticleStatus = async (id: string, status?: "published" | "hidden") => {
+    await adminApi.toggleArticleStatus(id, status);
+    setArticles(await adminApi.getArticles());
+  };
+
   const handleCreateNotification = async (notif: Partial<AdminNotification>) => {
     await adminApi.createNotification(notif);
     setNotifications(await adminApi.getNotifications());
@@ -580,7 +815,10 @@ export function useAdminPortal() {
     handleConfirmOrderPayment,
     handleUpdateOrderShipping,
     handleCancelOrder,
+    handleDeleteOrder,
+    handleRestoreOrder,
     handleRefreshOrders,
+    handleCreateOrder,
     handleUpdateRolePermissions,
     handleSaveStaff,
     handleUpdateStaffStatus,
@@ -593,7 +831,9 @@ export function useAdminPortal() {
     handleSaveDiscount,
     handleDeleteDiscount,
     handleSaveArticle,
+    handleToggleArticleStatus,
     handleDeleteArticle,
+    handleRestoreArticle,
     handleCreateNotification,
     handleMarkNotifRead,
     handleMarkAllNotifRead,

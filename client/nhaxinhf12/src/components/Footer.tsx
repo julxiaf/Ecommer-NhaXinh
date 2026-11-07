@@ -4,12 +4,51 @@ import {
   Phone, Mail, MapPin, ChevronUp
 } from "lucide-react";
 
-import { PRODUCT_GROUPS, ROOMS, HOTLINE } from "../util/CONSTRAINT";
+import { HOTLINE } from "../util/CONSTRAINT";
+import { categoryService } from "../services/categoryService";
+import type { CategoryItem } from "../types/catalog";
 import FloatingContact from "./FloatingContact";
 import "./Footer.css";
 
+const DEFAULT_FOOTER_ROOMS = [
+  { label: "Phòng khách", to: "/phong/phong-khach" },
+  { label: "Phòng ăn", to: "/phong/phong-an" },
+  { label: "Phòng ngủ", to: "/phong/phong-ngu" },
+  { label: "Phòng làm việc", to: "/phong/phong-lam-viec" },
+  { label: "Trang trí", to: "/phong/trang-tri" },
+];
+
 export default function Footer() {
   const [showTop, setShowTop] = useState(false);
+  const [newsletterEmail, setNewsletterEmail] = useState("");
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [categories, setCategories] = useState<{ title: string; to: string }[]>([
+    { title: "Sofa", to: "/danh-muc/sofa" },
+    { title: "Bàn", to: "/danh-muc/ban" },
+    { title: "Ghế", to: "/danh-muc/ghe" },
+    { title: "Tủ & kệ", to: "/danh-muc/tu-va-ke" },
+    { title: "Giường & nệm", to: "/danh-muc/giuong" },
+  ]);
+
+  useEffect(() => {
+    categoryService
+      .getCategories()
+      .then((cats: CategoryItem[]) => {
+        if (Array.isArray(cats) && cats.length > 0) {
+          const mapped = cats
+            .filter((c) => !c.parentId)
+            .slice(0, 5)
+            .map((c) => ({
+              title: c.name,
+              to: c.to || `/danh-muc/${c.slug}`,
+            }));
+          if (mapped.length > 0) {
+            setCategories(mapped);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setShowTop(window.scrollY > 400);
@@ -19,13 +58,55 @@ export default function Footer() {
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
-  // Chỉ hiển thị 4 nhóm sản phẩm đầu trong Footer
-  const footerCategories = PRODUCT_GROUPS.slice(0, 4);
+  const handleSubscribe = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newsletterEmail.trim()) return;
+    setIsSubscribed(true);
+    setNewsletterEmail("");
+    setTimeout(() => setIsSubscribed(false), 5000);
+  };
 
   return (
     <footer className="ft">
-      {/* ── Đội ngũ chuyên viên tư vấn & Thanh nhận tư vấn màu vàng ── */}
-      {/* <ConsultantSection /> */}
+      {/* ── Đăng ký nhận bản tin & Ưu đãi ── */}
+      <section className="ft-newsletter">
+        <div className="ft-newsletter-inner">
+          <div className="ft-newsletter-text">
+            <h3>Đăng ký nhận bản tin</h3>
+            <p>
+              Hãy để lại email của bạn để nhận được những ý tưởng trang trí mới và những thông tin, ưu đãi từ Nhà Xinh
+            </p>
+            <div className="ft-newsletter-contact">
+              <span>
+                <strong>Email:</strong>{" "}
+                <a href="mailto:nhaxinhcare@akacompany.com.vn">nhaxinhcare@akacompany.com.vn</a>
+              </span>
+              <span className="ft-newsletter-divider">•</span>
+              <span>
+                <strong>Hotline:</strong>{" "}
+                <a href="tel:0903884358">0903 884 358</a>
+              </span>
+            </div>
+          </div>
+          <div className="ft-newsletter-form-wrapper">
+            <form className="ft-newsletter-form" onSubmit={handleSubscribe}>
+              <input
+                type="email"
+                required
+                placeholder="Nhập email của bạn"
+                value={newsletterEmail}
+                onChange={(e) => setNewsletterEmail(e.target.value)}
+              />
+              <button type="submit">Đăng ký</button>
+            </form>
+            {isSubscribed && (
+              <p className="ft-newsletter-success">
+                ✓ Cảm ơn bạn! Nhà Xinh sẽ gửi những thông tin ưu đãi mới nhất qua email.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* ── Main Grid ── */}
       <div className="ft-main">
@@ -71,7 +152,7 @@ export default function Footer() {
         <div className="ft-col">
           <h4 className="ft-col-title">Sản phẩm</h4>
           <ul>
-            {footerCategories.map((g) => (
+            {categories.map((g) => (
               <li key={g.to}><Link to={g.to}>{g.title}</Link></li>
             ))}
             <li><Link to="/san-pham">Tất cả sản phẩm</Link></li>
@@ -82,7 +163,7 @@ export default function Footer() {
         <div className="ft-col">
           <h4 className="ft-col-title">Không gian</h4>
           <ul>
-            {ROOMS.slice(0, 5).map((r) => (
+            {DEFAULT_FOOTER_ROOMS.map((r) => (
               <li key={r.to}><Link to={r.to}>{r.label}</Link></li>
             ))}
           </ul>
@@ -90,15 +171,15 @@ export default function Footer() {
 
         {/* Hỗ trợ & Chính sách */}
         <div className="ft-col">
-          <h4 className="ft-col-title">Hỗ trợ & Chính sách</h4>
+          <h4 className="ft-col-title">Hỗ trợ & Thông tin</h4>
           <ul>
+            <li><Link to="/gioi-thieu">Giới thiệu Nhà Xinh</Link></li>
+            <li><Link to="/he-thong-showroom">Hệ thống showroom</Link></li>
+            <li><Link to="/giam-gia-dac-biet">Ưu đãi & Giảm giá</Link></li>
             <li><Link to="/chinh-sach-mua-ban-doi-tra">Chính sách đổi trả</Link></li>
             <li><Link to="/chinh-sach-giao-hang">Giao hàng & lắp đặt</Link></li>
             <li><Link to="/chinh-sach-bao-hanh">Bảo hành & bảo trì</Link></li>
             <li><Link to="/chinh-sach-bao-mat">Bảo mật thông tin</Link></li>
-            {/* <li><Link to="/khach-hang-than-thiet">Khách hàng thân thiết (VIP)</Link></li> */}
-            <li><Link to="/he-thong-cua-hang">Hệ thống showroom</Link></li>
-            {/* <li><Link to="/admin" style={{ color: "inherit", opacity: 0.85 }}>Trang Quản trị viên</Link></li> */}
           </ul>
         </div>
 
@@ -119,7 +200,7 @@ export default function Footer() {
             <div>
               <span className="ft-contact-label">Email</span>
               <div className="ft-contact-value">
-                <a href="mailto:info@nhaxinh.com">info@nhaxinh.com</a>
+                <a href="mailto:nhaxinhcare@akacompany.com.vn">nhaxinhcare@akacompany.com.vn</a>
               </div>
             </div>
           </div>

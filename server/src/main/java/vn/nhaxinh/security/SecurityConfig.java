@@ -21,10 +21,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
-// import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-// import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -53,7 +52,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            SecurityContextRepository securityContextRepository
+            SecurityContextRepository securityContextRepository,
+            JwtAuthenticationFilter jwtAuthenticationFilter
     ) throws Exception {
         http
                 .cors(Customizer.withDefaults())
@@ -65,6 +65,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                         .sessionFixation(fixation -> fixation.changeSessionId()))
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
                         // 1. Cho phép tất cả OPTIONS (CORS preflight)
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
@@ -82,18 +83,22 @@ public class SecurityConfig {
                         // 3. Toàn bộ các API xác thực công khai (login, register, csrf, me, logout)
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/v1/cart/**", "/api/v1/checkout", "/api/v1/checkout/**").permitAll()
+                        .requestMatchers("/api/v1/articles/**", "/api/v1/admin/articles/**").permitAll()
+                        .requestMatchers("/api/v1/collections/**", "/api/v1/admin/collections/**").permitAll()
                         .requestMatchers("/api/v1/payments/order/**", "/api/v1/payments/vnpay/**").permitAll()
                         .requestMatchers("/api/v1/notifications/**").permitAll()
                         .requestMatchers("/api/v1/chatbot/**").permitAll()
+                        .requestMatchers("/api/v1/system-configs/**", "/api/v1/admin/system-configs/**").permitAll()
+                        .requestMatchers("/api/v1/coupons/**", "/api/v1/admin/coupons/**").permitAll()
 
                         // 3. API Quản lý đơn hàng, sản phẩm & danh mục dành cho ADMIN và STAFF
                         .requestMatchers(HttpMethod.GET, "/api/v1/categories", "/api/v1/categories/**", "/api/v1/admin/categories").permitAll()
-                        // .requestMatchers("/api/v1/admin/orders/**").hasAnyRole("ADMIN", "STAFF")
-                        // .requestMatchers("/api/v1/admin/products/**").hasAnyRole("ADMIN", "STAFF")
-                        // .requestMatchers("/api/v1/admin/categories/**").hasAnyRole("ADMIN", "STAFF")
+                        .requestMatchers("/api/v1/admin/orders/**").hasAnyRole("ADMIN", "STAFF")
+                        .requestMatchers("/api/v1/admin/products/**").hasAnyRole("ADMIN", "STAFF")
+                        .requestMatchers("/api/v1/admin/categories/**").hasAnyRole("ADMIN", "STAFF")
 
                         // 4. API Quản trị hệ thống & Phân quyền (bắt buộc phải có ROLE_ADMIN)
-                        // .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 
                         // 5. Khách hàng hủy đơn hàng (xác thực hoặc bằng số điện thoại)
                         .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/cancel").permitAll()
@@ -139,7 +144,7 @@ public class SecurityConfig {
                         .logoutUrl("/api/v1/auth/logout")
                         .logoutSuccessHandler((request, response, authentication) ->
                                 response.setStatus(HttpStatus.NO_CONTENT.value()))
-                        .deleteCookies("JSESSIONID"))
+                        .deleteCookies("JSESSIONID", "__nx_session_id", JwtAuthenticationFilter.JWT_COOKIE_NAME))
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable);
 

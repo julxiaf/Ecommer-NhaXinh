@@ -6,6 +6,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +35,8 @@ import vn.nhaxinh.user.UserRepository;
 @RestController
 @RequestMapping(BaseController.API_V1 + "/orders")
 public class OrderController extends BaseController {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderController.class);
 
     private final OrderService orderService;
     private final UserRepository userRepository;
@@ -63,7 +67,7 @@ public class OrderController extends BaseController {
                 .orElseThrow(() -> new ApiException(ApiErrorCode.AUTH_UNAUTHENTICATED));
 
         int safeSize = Math.min(Math.max(size, 1), 50);
-        Page<Order> ordersPage = orderService.findByUserId(user.getId(), PageRequest.of(Math.max(page, 0), safeSize));
+        Page<Order> ordersPage = orderService.findCustomerOrders(user, PageRequest.of(Math.max(page, 0), safeSize));
         List<Order> ordersList = ordersPage.getContent();
         if (ordersList.isEmpty()) {
             return ResponseEntity.ok(ordersPage.map(o -> OrderSummaryResponse.of(o, List.of(), List.of(), "CASH_ON_DELIVERY")));
@@ -98,8 +102,21 @@ public class OrderController extends BaseController {
         // 1. Nếu khách đã đăng nhập là chủ đơn hàng -> OK
         // 2. Nếu khách vãng lai và cung cấp đúng số điện thoại đặt hàng -> OK
         // 3. Nếu là Admin hoặc Staff -> OK
-        boolean isOwner = principal != null && order.getUser() != null &&
-                principal.getUsername().equalsIgnoreCase(order.getUser().getUsername());
+        boolean isOwner = false;
+        if (principal != null) {
+            if (order.getUser() != null && principal.getUsername().equalsIgnoreCase(order.getUser().getUsername())) {
+                isOwner = true;
+            } else {
+                User currentUser = userRepository.findByUsername(principal.getUsername()).orElse(null);
+                if (currentUser != null) {
+                    boolean sameEmail = currentUser.getEmail() != null && order.getRecipientEmail() != null
+                            && currentUser.getEmail().trim().equalsIgnoreCase(order.getRecipientEmail().trim());
+                    boolean samePhone = currentUser.getPhone() != null && order.getRecipientPhone() != null
+                            && currentUser.getPhone().trim().equals(order.getRecipientPhone().trim());
+                    isOwner = sameEmail || samePhone;
+                }
+            }
+        }
         boolean isStaffOrAdmin = principal != null && principal.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_STAFF"));
         boolean isMatchingPhone = phone != null && phone.trim().equals(order.getRecipientPhone());
@@ -127,7 +144,27 @@ public class OrderController extends BaseController {
             HttpServletRequest httpRequest
     ) {
         String username = principal != null ? principal.getUsername() : null;
-        Order cancelled = orderService.cancelOrder(orderCode, request.reason(), username, phone);
+        User currentUser = username != null ? userRepository.findByUsername(username).orElse(null) : null;
+        boolean isStaffOrAdmin = principal != null && principal.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_STAFF"));
+
+        String resolvedPhone = (phone != null && !phone.isBlank()) ? phone.trim() : request.phone();
+        String resolvedEmail = request.email();
+
+        log.info("[ORDER-CANCEL-REQ] Yêu cầu hủy đơn orderCode='{}' | principal='{}' (userId={}, email='{}', phone='{}', staffOrAdmin={}) | paramPhone='{}' | reqEmail='{}' | reason='{}' | ip='{}'",
+                orderCode,
+                username != null ? username : "anonymous",
+                currentUser != null ? currentUser.getId() : null,
+                currentUser != null ? currentUser.getEmail() : null,
+                currentUser != null ? currentUser.getPhone() : null,
+                isStaffOrAdmin,
+                resolvedPhone,
+                resolvedEmail,
+                request.reason(),
+                httpRequest.getRemoteAddr()
+        );
+
+        Order cancelled = orderService.cancelOrder(orderCode, request.reason(), currentUser, username, resolvedPhone, resolvedEmail, isStaffOrAdmin);
 
         // Ghi AuditLog
         audit.record(principal, httpRequest, "CUSTOMER_CANCEL_ORDER", "ORDER", cancelled.getId(), details(

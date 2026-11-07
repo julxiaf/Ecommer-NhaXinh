@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Heart, ShoppingBag, Eye } from "lucide-react";
+import { DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
 import "./ProductCard.css";
 
 import type { Product } from "../types/catalog";
@@ -39,7 +40,7 @@ export default function ProductCard({
             onError={(e) => {
               const target = e.currentTarget;
               target.onerror = null;
-              target.src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
+              target.src = DEFAULT_PLACEHOLDER_IMAGE;
             }}
           />
         </Link>

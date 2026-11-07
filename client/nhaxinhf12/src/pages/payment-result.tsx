@@ -113,8 +113,16 @@ export default function PaymentResultPage() {
               )}
 
               <div className="order-success-actions">
-                <Link to="/tai-khoan" className="btn-primary" style={{ textDecoration: "none" }}>
-                  Xem lịch sử đơn hàng
+                <Link
+                  to={
+                    orderReference
+                      ? `/tai-khoan?tab=orders&orderCode=${encodeURIComponent(orderReference)}`
+                      : "/tai-khoan?tab=orders"
+                  }
+                  className="btn-primary"
+                  style={{ textDecoration: "none" }}
+                >
+                  Xem chi tiết đơn hàng
                 </Link>
                 <Link to="/san-pham" className="btn-secondary" style={{ textDecoration: "none" }}>
                   Tiếp tục mua sắm

@@ -25,7 +25,6 @@ import vn.nhaxinh.inventory.Inventory;
 import vn.nhaxinh.inventory.InventoryService;
 import vn.nhaxinh.notification.NotificationService;
 import vn.nhaxinh.order.*;
-import vn.nhaxinh.risk.OrderRiskService;
 import vn.nhaxinh.user.User;
 import vn.nhaxinh.user.UserService;
 
@@ -57,8 +56,6 @@ class VnPayCheckoutTest {
     @Mock
     private AuditLogService auditLogService;
     @Mock
-    private OrderRiskService orderRiskService;
-    @Mock
     private NotificationService notificationService;
 
     private VnPayService vnPayService;
@@ -85,10 +82,9 @@ class VnPayCheckoutTest {
                 inventoryService,
                 auditLogService,
                 vnPayService,
-                orderRiskService,
-                new ObjectMapper()
-                // null,
-                // notificationService
+                new ObjectMapper(),
+                null,
+                notificationService
         );
         checkoutController = new CheckoutController(checkoutService, vnPayService);
     }
@@ -196,13 +192,13 @@ class VnPayCheckoutTest {
         returnParams.add("vnp_TxnRef", txnRef);
         returnParams.add("vnp_SecureHash", signParams(returnParams));
 
-        RedirectView redirectSuccess = checkoutController.receiveVnPayReturn(returnParams);
-        assertThat(redirectSuccess.getUrl()).startsWith("http://localhost:5173/thanh-toan?vnpay=success");
+        RedirectView redirectSuccess = checkoutController.receiveVnPayReturn(returnParams, new org.springframework.mock.web.MockHttpServletRequest());
+        assertThat(redirectSuccess.getUrl()).startsWith("http://localhost:5173/payment/result?status=success");
         assertThat(capturedOrder[0]).isNotNull();
         assertThat(capturedOrder[0].getOrderStatus()).isEqualTo("CONFIRMED");
         assertThat(capturedOrder[0].getPaymentStatus()).isEqualTo("PAID");
         assertThat(capturedPayment[0]).isNotNull();
-        assertThat(capturedPayment[0].getPaymentStatus()).isEqualTo("PAID");
+        assertThat(capturedPayment[0].getPaymentStatus()).isEqualTo("SUCCESS");
         assertThat(cart.getStatus()).isEqualTo("CONVERTED");
         assertThat(inventory.getQuantityOnHand()).isEqualTo(8);
         verify(notificationService).sendOrderConfirmationEmail(any(Order.class), any(), any());
@@ -267,8 +263,8 @@ class VnPayCheckoutTest {
         queryParams.set("vnp_ResponseCode", "24");
         queryParams.set("vnp_SecureHash", signParams(queryParams));
 
-        RedirectView redirectView = checkoutController.receiveVnPayReturn(queryParams);
-        assertThat(redirectView.getUrl()).startsWith("http://localhost:5173/thanh-toan?vnpay=failed");
+        RedirectView redirectView = checkoutController.receiveVnPayReturn(queryParams, new org.springframework.mock.web.MockHttpServletRequest());
+        assertThat(redirectView.getUrl()).startsWith("http://localhost:5173/payment/result?status=failed");
         verify(orderService, never()).createOrder(any());
         verify(paymentRepository, never()).saveAndFlush(any());
         verify(notificationService, never()).sendOrderConfirmationEmail(any(), any(), any());

@@ -1,20 +1,6 @@
 package vn.nhaxinh.catalog;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -57,6 +43,12 @@ public class Product {
     @Column(name = "stock_status", length = 30)
     private String stockStatus = "IN_STOCK";
 
+    @Column(name = "is_deleted", nullable = false)
+    private Boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Column(name = "seo_title", length = 240)
     private String seoTitle;
 
@@ -65,6 +57,9 @@ public class Product {
 
     @Column(name = "published_at")
     private LocalDateTime publishedAt;
+
+    @Column(name = "created_by", length = 120)
+    private String createdBy;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -106,6 +101,9 @@ public class Product {
         }
         if (stockStatus == null) {
             stockStatus = "IN_STOCK";
+        }
+        if (isDeleted == null) {
+            isDeleted = false;
         }
     }
 
@@ -256,5 +254,29 @@ public class Product {
 
     public void setStockStatus(String stockStatus) {
         this.stockStatus = stockStatus;
+    }
+
+    public Boolean getIsDeleted() {
+        return isDeleted;
+    }
+
+    public void setIsDeleted(Boolean isDeleted) {
+        this.isDeleted = isDeleted;
+    }
+
+    public LocalDateTime getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(LocalDateTime deletedAt) {
+        this.deletedAt = deletedAt;
+    }
+
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    public void setCreatedBy(String createdBy) {
+        this.createdBy = createdBy;
     }
 }

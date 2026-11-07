@@ -7,15 +7,19 @@ import { usePagination } from "../usePagination";
 interface UseAdminOrdersParams {
   orders: AdminOrder[];
   currentRole: RoleDefinition;
-  onUpdateStatus: (orderId: string, newStatus: AdminOrder["status"], note?: string) => Promise<void> | void;
-  onConfirmPayment: (orderId: string, paymentStatus?: string, paymentMethod?: string, note?: string) => Promise<void>;
+  onUpdateStatus: (orderId: string, newStatus: AdminOrder["status"], note?: string) => Promise<AdminOrder | void> | void;
+  onConfirmPayment: (orderId: string, paymentStatus?: string, paymentMethod?: string, note?: string) => Promise<AdminOrder | void>;
   onUpdateShipping?: (
     orderId: string,
     data: { recipientName: string; recipientPhone: string; shippingAddress: string; customerNote?: string }
-  ) => Promise<void>;
-  onCancelOrder?: (orderId: string, reason: string) => Promise<void>;
+  ) => Promise<AdminOrder | void>;
+  onCancelOrder?: (orderId: string, reason: string) => Promise<AdminOrder | void>;
+  onDeleteOrder?: (orderId: string) => Promise<void> | void;
+  onRestoreOrder?: (orderId: string) => Promise<void> | void;
   onRefreshOrders?: () => Promise<void>;
 }
+
+export type OrderStatusFilter = "all" | AdminOrder["status"] | "trash";
 
 export function useAdminOrders({
   orders,
@@ -24,10 +28,12 @@ export function useAdminOrders({
   onConfirmPayment,
   onUpdateShipping,
   onCancelOrder,
+  onDeleteOrder,
+  onRestoreOrder,
   onRefreshOrders,
 }: UseAdminOrdersParams) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | AdminOrder["status"]>("all");
+  const [statusFilter, setStatusFilter] = useState<OrderStatusFilter>("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
 
@@ -67,7 +73,10 @@ export function useAdminOrders({
 
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
-      const matchStatus = statusFilter === "all" || o.status === statusFilter;
+      const matchDeleted = statusFilter === "trash" ? Boolean(o.isDeleted) : !o.isDeleted;
+      if (!matchDeleted) return false;
+
+      const matchStatus = statusFilter === "all" || statusFilter === "trash" || o.status === statusFilter;
       const matchPayStatus =
         paymentStatusFilter === "all" ||
         (o.paymentStatus || "unpaid").toLowerCase() === paymentStatusFilter.toLowerCase();
@@ -141,10 +150,13 @@ export function useAdminOrders({
       customerNote: order.note || "",
     });
 
-    setIsLoadingDetail(true);
+    const hasFullData = Array.isArray(order.items) && order.items.length > 0;
+    if (!hasFullData) {
+      setIsLoadingDetail(true);
+    }
     try {
       const fullDetail = await adminApi.getOrderDetail(order.id);
-      setSelectedOrder(fullDetail);
+      setSelectedOrder((prev) => (prev && String(prev.id) === String(order.id) ? fullDetail : prev));
       setNewStatus(fullDetail.status);
       if (fullDetail.paymentStatus) setPaymentStatusInput(fullDetail.paymentStatus);
       if (fullDetail.paymentMethod) setPaymentMethodInput(fullDetail.paymentMethod);
@@ -163,23 +175,44 @@ export function useAdminOrders({
 
   const handleApplyStatusChange = async () => {
     if (!selectedOrder) return;
+    if (selectedOrder.status === "completed") {
+      showToast("Đơn hàng đã giao thành công, chỉ có thể xem chi tiết và không thể cập nhật.", "error");
+      return;
+    }
+    if (selectedOrder.status === "cancelled") {
+      showToast("Đơn hàng đã bị hủy, không thể thay đổi trạng thái.", "error");
+      return;
+    }
+    if (selectedOrder.status === "shipping" && newStatus === "cancelled") {
+      showToast("Đơn hàng đã được bàn giao vận chuyển và đang giao đi, không thể hủy.", "error");
+      return;
+    }
+    if (selectedOrder.status === "shipping" && (newStatus === "pending" || newStatus === "confirmed" || newStatus === "processing")) {
+      showToast("Đơn hàng đã được giao đi, không thể chuyển lùi trạng thái.", "error");
+      return;
+    }
+
     setIsSubmittingStatus(true);
     try {
-      await onUpdateStatus(selectedOrder.id, newStatus as AdminOrder["status"], statusNote.trim() || undefined);
+      const updated = await onUpdateStatus(selectedOrder.id, newStatus as AdminOrder["status"], statusNote.trim() || undefined);
       showToast(`Đã cập nhật trạng thái đơn #${selectedOrder.orderCode} sang ${newStatus.toUpperCase()}`);
 
-      const updatedHistory: OrderStatusHistory = {
-        id: `hist-${Date.now()}`,
-        status: newStatus as AdminOrder["status"],
-        timestamp: new Date().toLocaleString("vi-VN"),
-        updatedBy: currentRole.name,
-        note: statusNote.trim() || `Đổi trạng thái sang ${newStatus}`,
-      };
-      setSelectedOrder({
-        ...selectedOrder,
-        status: newStatus as AdminOrder["status"],
-        statusHistory: [updatedHistory, ...(selectedOrder.statusHistory || [])],
-      });
+      if (updated && typeof updated === "object" && "status" in updated) {
+        setSelectedOrder(updated);
+      } else {
+        const updatedHistory: OrderStatusHistory = {
+          id: `hist-${Date.now()}`,
+          status: newStatus as AdminOrder["status"],
+          timestamp: new Date().toLocaleString("vi-VN"),
+          updatedBy: currentRole.name,
+          note: statusNote.trim() || `Đổi trạng thái sang ${newStatus}`,
+        };
+        setSelectedOrder({
+          ...selectedOrder,
+          status: newStatus as AdminOrder["status"],
+          statusHistory: [updatedHistory, ...(selectedOrder.statusHistory || [])],
+        });
+      }
       setStatusNote("");
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Cập nhật trạng thái thất bại", "error");
@@ -190,15 +223,28 @@ export function useAdminOrders({
 
   const handleApplyPaymentChange = async () => {
     if (!selectedOrder) return;
+    if (selectedOrder.status === "completed") {
+      showToast("Đơn hàng đã giao thành công, không thể thay đổi thông tin thanh toán.", "error");
+      return;
+    }
+    if (selectedOrder.status === "cancelled") {
+      showToast("Đơn hàng đã bị hủy, không thể thay đổi thông tin thanh toán.", "error");
+      return;
+    }
+
     setIsSubmittingPayment(true);
     try {
-      await onConfirmPayment(selectedOrder.id, paymentStatusInput, paymentMethodInput, paymentNote.trim() || undefined);
+      const updated = await onConfirmPayment(selectedOrder.id, paymentStatusInput, paymentMethodInput, paymentNote.trim() || undefined);
       showToast(`Đã cập nhật thanh toán đơn #${selectedOrder.orderCode}: ${paymentMethodInput.toUpperCase()} - ${paymentStatusInput.toUpperCase()}`);
-      setSelectedOrder({
-        ...selectedOrder,
-        paymentStatus: paymentStatusInput as AdminOrder["paymentStatus"],
-        paymentMethod: paymentMethodInput as AdminOrder["paymentMethod"],
-      });
+      if (updated && typeof updated === "object" && "paymentStatus" in updated) {
+        setSelectedOrder(updated);
+      } else {
+        setSelectedOrder({
+          ...selectedOrder,
+          paymentStatus: paymentStatusInput as AdminOrder["paymentStatus"],
+          paymentMethod: paymentMethodInput as AdminOrder["paymentMethod"],
+        });
+      }
       setPaymentNote("");
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Cập nhật thanh toán thất bại", "error");
@@ -209,6 +255,19 @@ export function useAdminOrders({
 
   const handleSaveShipping = async () => {
     if (!selectedOrder || !onUpdateShipping) return;
+    if (selectedOrder.status === "completed") {
+      showToast("Đơn hàng đã giao thành công, không thể thay đổi thông tin nhận hàng.", "error");
+      return;
+    }
+    if (selectedOrder.status === "shipping") {
+      showToast("Đơn hàng đã được bàn giao vận chuyển và đang giao đi, không thể thay đổi thông tin nhận hàng.", "error");
+      return;
+    }
+    if (selectedOrder.status === "cancelled") {
+      showToast("Đơn hàng đã bị hủy, không thể thay đổi thông tin nhận hàng.", "error");
+      return;
+    }
+
     if (!shippingForm.recipientName.trim()) {
       showToast("Tên người nhận không được để trống", "error");
       return;
@@ -224,15 +283,19 @@ export function useAdminOrders({
 
     setIsSubmittingShipping(true);
     try {
-      await onUpdateShipping(selectedOrder.id, shippingForm);
+      const updated = await onUpdateShipping(selectedOrder.id, shippingForm);
       showToast(`Đã cập nhật thông tin giao hàng đơn #${selectedOrder.orderCode}`);
-      setSelectedOrder({
-        ...selectedOrder,
-        customerName: shippingForm.recipientName.trim(),
-        phone: shippingForm.recipientPhone.trim(),
-        address: shippingForm.shippingAddress.trim(),
-        note: shippingForm.customerNote.trim() || undefined,
-      });
+      if (updated && typeof updated === "object" && "customerName" in updated) {
+        setSelectedOrder(updated);
+      } else {
+        setSelectedOrder({
+          ...selectedOrder,
+          customerName: shippingForm.recipientName.trim(),
+          phone: shippingForm.recipientPhone.trim(),
+          address: shippingForm.shippingAddress.trim(),
+          note: shippingForm.customerNote.trim() || undefined,
+        });
+      }
       setIsEditingShipping(false);
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : "Cập nhật thông tin giao hàng thất bại", "error");
@@ -243,6 +306,14 @@ export function useAdminOrders({
 
   const handleConfirmCancel = async () => {
     if (!cancelModalOrder || !onCancelOrder) return;
+    if (cancelModalOrder.status === "completed") {
+      showToast("Đơn hàng đã giao thành công, không thể hủy.", "error");
+      return;
+    }
+    if (cancelModalOrder.status === "shipping") {
+      showToast("Đơn hàng đã được bàn giao vận chuyển và đang giao đi, không thể hủy đơn hàng.", "error");
+      return;
+    }
     if (!cancelReason.trim()) {
       showToast("Vui lòng nhập lý do hủy đơn hàng", "error");
       return;
@@ -250,13 +321,17 @@ export function useAdminOrders({
 
     setIsSubmittingCancel(true);
     try {
-      await onCancelOrder(cancelModalOrder.id, cancelReason.trim());
+      const updated = await onCancelOrder(cancelModalOrder.id, cancelReason.trim());
       showToast(`Đã hủy đơn hàng #${cancelModalOrder.orderCode} thành công`);
       if (selectedOrder && selectedOrder.id === cancelModalOrder.id) {
-        setSelectedOrder({
-          ...selectedOrder,
-          status: "cancelled",
-        });
+        if (updated && typeof updated === "object" && "status" in updated) {
+          setSelectedOrder(updated);
+        } else {
+          setSelectedOrder({
+            ...selectedOrder,
+            status: "cancelled",
+          });
+        }
       }
       setCancelModalOrder(null);
       setCancelReason("");
@@ -290,6 +365,31 @@ export function useAdminOrders({
       }
     } finally {
       setIsSendingOrderEmail(false);
+    }
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!onDeleteOrder) return;
+    const target = orders.find((o) => o.id === orderId);
+    if (target?.status === "completed") {
+      showToast("Đơn hàng đã giao thành công, không thể xóa để lưu trữ kế toán.", "error");
+      return;
+    }
+    try {
+      await onDeleteOrder(orderId);
+      showToast("Đã chuyển đơn hàng vào thùng rác (xóa mềm)");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Xóa đơn hàng thất bại", "error");
+    }
+  };
+
+  const handleRestoreOrder = async (orderId: string) => {
+    if (!onRestoreOrder) return;
+    try {
+      await onRestoreOrder(orderId);
+      showToast("Đã khôi phục đơn hàng thành công");
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : "Khôi phục đơn hàng thất bại", "error");
     }
   };
 
@@ -340,6 +440,8 @@ export function useAdminOrders({
     handleApplyPaymentChange,
     handleSaveShipping,
     handleConfirmCancel,
+    handleDeleteOrder,
+    handleRestoreOrder,
     handleSendOrderEmail,
   };
 }

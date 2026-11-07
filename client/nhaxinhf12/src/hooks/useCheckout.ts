@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useStore, isPreorderItem, getMaxStock } from "./useStore";
 import { adminApi } from "../services/admin/adminService";
-import { checkoutService } from "../services/checkoutService";
+import { apiaddress, checkoutService } from "../services/checkoutService";
 
 export type PaymentMethod = "cod" | "vnpay" | "vietqr" | "momo";
 export type ShippingMethod = "standard" | "express";
@@ -34,8 +34,32 @@ export interface VnpayNotification {
 const PENDING_VNPAY_KEY = "nhaxinh_pending_vnpay";
 
 export function useCheckout() {
-  const { cart, cartTotal, hasPreorderItems, preorderItems, clearCart, user, wishlist } = useStore();
+  const {
+    cart,
+    cartTotal,
+    hasPreorderItems,
+    clearCart,
+    user,
+    wishlist,
+    selectedCartItems,
+    selectedCartTotal,
+    hasSelectedPreorder,
+    removeSelectedCartItems,
+  } = useStore();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Xác định danh sách sản phẩm thanh toán: nếu người dùng tích chọn thì chỉ thanh toán những món đó
+  const checkoutCart = selectedCartItems.length > 0 ? selectedCartItems : cart;
+  const checkoutTotal = selectedCartItems.length > 0 ? selectedCartTotal : cartTotal;
+  const checkoutHasPreorder = selectedCartItems.length > 0 ? hasSelectedPreorder : hasPreorderItems;
+  const checkoutPreorderItems = checkoutCart.filter((i) =>
+    isPreorderItem(i.product, i.variantId ?? i.product.variantId)
+  );
+
+  // State danh sách tỉnh/thành và xã/phường từ AddressKit API
+  const [provinces, setProvinces] = useState<any[]>([]);
+  const [communes, setCommunes] = useState<any[]>([]);
+  const [isLoadingAddress, setIsLoadingAddress] = useState<boolean>(false);
 
   // Xác định người mua là Customer (đã có tài khoản đăng nhập) hay Guest (khách vãng lai)
   const isCustomer = Boolean(user && user.email);
@@ -45,10 +69,70 @@ export function useCheckout() {
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [phone, setPhone] = useState(user?.phone || "");
   const [email, setEmail] = useState(user?.email || "");
-  const [city, setCity] = useState("Hồ Chí Minh");
-  const [district, setDistrict] = useState("Quận 1");
+  const [city, setCity] = useState("Thành phố Hà Nội");
+  const [district, setDistrict] = useState("Phường Hoàng Mai");
   const [address, setAddress] = useState(user?.address || "");
   const [note, setNote] = useState("");
+
+  // 1. Tải danh sách Tỉnh/Thành phố khi vào trang
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        setIsLoadingAddress(true);
+        const data = await apiaddress.getAllProvince();
+        if (active && Array.isArray(data) && data.length > 0) {
+          setProvinces(data);
+          // Tìm tỉnh tương ứng với state ban đầu hoặc mặc định chọn phần tử đầu
+          const matched = data.find(
+            (p: any) =>
+              p.name === city ||
+              p.code === city ||
+              (p.name && p.name.includes("Hà Nội"))
+          ) || data[0];
+          if (matched) {
+            setCity(matched.code || matched.id || matched.name);
+          }
+        }
+      } catch (err) {
+        console.error("Lỗi khi tải danh sách Tỉnh/Thành:", err);
+      } finally {
+        if (active) setIsLoadingAddress(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // 2. Tải danh sách Xã/Phường mỗi khi Tỉnh/Thành phố thay đổi
+  useEffect(() => {
+    if (!city) return;
+    let active = true;
+    (async () => {
+      try {
+        setIsLoadingAddress(true);
+        const data = await apiaddress.getProvinceDetail(city);
+        if (active && Array.isArray(data)) {
+          setCommunes(data);
+          if (data.length > 0) {
+            // Mặc định chọn phường/xã đầu tiên trong danh sách mới
+            const firstCommune = data[0];
+            setDistrict(firstCommune.name || firstCommune.code || "");
+          } else {
+            setDistrict("");
+          }
+        }
+      } catch (err) {
+        console.error("Lỗi khi tải danh sách Xã/Phường:", err);
+      } finally {
+        if (active) setIsLoadingAddress(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [city]);
 
   // Khi có user đăng nhập (Customer), tự động đồng bộ và cố định email theo tài khoản khách hàng
   useEffect(() => {
@@ -60,11 +144,8 @@ export function useCheckout() {
     }
   }, [user]);
 
-  // Ngăn chặn Customer sửa đổi email khi thanh toán (chỉ Guest mới được tự do nhập email)
+  // Cho phép người mua tự do nhập hoặc chỉnh sửa email nhận hóa đơn đơn hàng
   const handleSetEmail = (val: string) => {
-    if (isCustomer && user?.email) {
-      return; // Khách hàng thành viên không thể thay đổi email hóa đơn
-    }
     setEmail(val);
   };
 
@@ -80,6 +161,27 @@ export function useCheckout() {
     amount?: number;
   } | null>(null);
   const [couponError, setCouponError] = useState("");
+  const [availableCoupons, setAvailableCoupons] = useState<
+    Array<{
+      code: string;
+      name: string;
+      description: string;
+      discountType: string;
+      discountValue: number;
+      minOrderAmount: number;
+      targetCustomer: string;
+      scopeType: string;
+    }>
+  >([]);
+
+  useEffect(() => {
+    void (async () => {
+      const list = await checkoutService.getPublicCoupons();
+      if (list && list.length > 0) {
+        setAvailableCoupons(list);
+      }
+    })();
+  }, []);
 
   // Điều khoản & Tạo tài khoản
   const [agreeTerms, setAgreeTerms] = useState(true);
@@ -127,7 +229,6 @@ export function useCheckout() {
         // Bỏ qua lỗi parse
       }
     }
-
     if (vnpayStatus === "failed") {
       if (savedDraft) {
         if (savedDraft.fullName) setFullName(savedDraft.fullName);
@@ -162,7 +263,11 @@ export function useCheckout() {
           "Thanh toán VNPAY thành công! Đơn hàng và giao dịch thanh toán của quý khách đã được ghi nhận.",
       });
       sessionStorage.removeItem(PENDING_VNPAY_KEY);
-      clearCart();
+      if (selectedCartItems.length > 0) {
+        removeSelectedCartItems();
+      } else {
+        clearCart();
+      }
       setSearchParams({}, { replace: true });
 
       void (async () => {
@@ -228,7 +333,7 @@ export function useCheckout() {
     }
 
     void (async () => {
-      const apiRes = await checkoutService.validateCoupon(code, cartTotal, shippingFee);
+      const apiRes = await checkoutService.validateCoupon(code, cartTotal, shippingFee, phone);
       if (apiRes.valid && apiRes.discountAmount !== undefined) {
         setAppliedDiscount({
           code: apiRes.code || code,
@@ -257,6 +362,40 @@ export function useCheckout() {
     })();
   };
 
+  const applyCouponCode = (codeToApply: string) => {
+    setCouponCode(codeToApply);
+    const code = codeToApply.trim().toUpperCase();
+    setCouponError("");
+
+    void (async () => {
+      const apiRes = await checkoutService.validateCoupon(code, cartTotal, shippingFee, phone);
+      if (apiRes.valid && apiRes.discountAmount !== undefined) {
+        setAppliedDiscount({
+          code: apiRes.code || code,
+          amount: apiRes.discountAmount,
+        });
+        return;
+      }
+
+      if (apiRes.error && apiRes.error !== "OFFLINE") {
+        setAppliedDiscount(null);
+        setCouponError(apiRes.error);
+        return;
+      }
+
+      if (code === "NHAXINH10") {
+        setAppliedDiscount({ code: "NHAXINH10", percent: 10 });
+      } else if (code === "FREESHIP") {
+        setAppliedDiscount({ code: "FREESHIP", amount: shippingFee > 0 ? shippingFee : 150000 });
+      } else if (code === "VIP500") {
+        setAppliedDiscount({ code: "VIP500", amount: 500000 });
+      } else {
+        setAppliedDiscount(null);
+        setCouponError("Mã giảm giá không hợp lệ hoặc đã hết hạn.");
+      }
+    })();
+  };
+
   const handleSubmitOrder = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -265,15 +404,15 @@ export function useCheckout() {
       return;
     }
 
-    if (hasPreorderItems) {
+    if (checkoutHasPreorder) {
       alert("Đơn hàng của bạn có chứa sản phẩm Đặt Trước (Pre-order). Vui lòng liên hệ nhân viên tư vấn qua Zalo hoặc Hotline để xác nhận, không thể thanh toán trực tuyến tự động!");
       return;
     }
 
     // Kiểm tra từng sản phẩm có vượt tồn kho hay không
-    for (const item of cart) {
-      const isPre = isPreorderItem(item.product);
+    for (const item of checkoutCart) {
       const effectiveVariantId = item.variantId ?? item.product.variantId;
+      const isPre = isPreorderItem(item.product, effectiveVariantId);
       const max = getMaxStock(item.product, effectiveVariantId);
       const itemQty = item.qty || item.quantity;
       if (!isPre && itemQty > max) {
@@ -299,7 +438,12 @@ export function useCheckout() {
       return;
     }
 
-    const fullShippingAddress = `${trimmedAddress}, ${district}, ${city}`;
+    const selectedProvince = provinces.find((p: any) => p.code === city || p.id === city || p.name === city);
+    const cityName = selectedProvince?.name || city;
+    const selectedCommune = communes.find((c: any) => c.code === district || c.id === district || c.name === district);
+    const districtName = selectedCommune?.name || district;
+
+    const fullShippingAddress = `${trimmedAddress}, ${districtName}, ${cityName}`;
     if (fullShippingAddress.length < 12) {
       alert("Địa chỉ giao hàng quá ngắn. Vui lòng nhập chi tiết số nhà, tên đường!");
       return;
@@ -315,7 +459,7 @@ export function useCheckout() {
 
     setIsSubmitting(true);
 
-    const effectiveEmail = (isCustomer && user?.email ? user.email.trim() : email.trim()) || undefined;
+    const effectiveEmail = (email.trim() || user?.email?.trim()) || undefined;
 
     void (async () => {
       try {
@@ -330,7 +474,7 @@ export function useCheckout() {
             couponCode: appliedDiscount?.code || undefined,
             shippingFee,
           },
-          cart
+          checkoutCart
         );
 
         if (!checkoutRes.success || !checkoutRes.data) {
@@ -364,7 +508,7 @@ export function useCheckout() {
                 discountAmount,
                 shippingFee,
                 total: data.totalAmount ? Number(data.totalAmount) : finalTotal,
-                itemsCount: cart.reduce((sum, item) => sum + item.qty, 0),
+                itemsCount: checkoutCart.reduce((sum, item) => sum + (item.qty || item.quantity || 1), 0),
               })
             );
             window.location.assign(data.paymentUrl);
@@ -380,7 +524,7 @@ export function useCheckout() {
 
         // Lưu vết admin local (nếu dùng dashboard offline)
         try {
-          const orderItems = cart.map(({ product, quantity }) => ({
+          const orderItems = checkoutCart.map(({ product, quantity }) => ({
             productId: product.id,
             name: product.name,
             image: product.image,
@@ -428,7 +572,7 @@ export function useCheckout() {
           shippingFee,
           total: data.totalAmount ? Number(data.totalAmount) : finalTotal,
           date: createdAt,
-          itemsCount: cart.reduce((sum, item) => sum + item.qty, 0),
+          itemsCount: checkoutCart.reduce((sum, item) => sum + (item.qty || item.quantity || 1), 0),
         };
 
         setSubmittedOrder(order);
@@ -439,7 +583,11 @@ export function useCheckout() {
             text: `Thông báo xác nhận đơn hàng & hóa đơn điện tử đã được gửi tới email ${resolvedOrderEmail}.`,
           });
         }
-        clearCart();
+        if (selectedCartItems.length > 0) {
+          removeSelectedCartItems();
+        } else {
+          clearCart();
+        }
         setIsSubmitting(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (error: any) {
@@ -493,11 +641,11 @@ export function useCheckout() {
   };
 
   return {
-    // Store data
-    cart,
-    cartTotal,
-    hasPreorderItems,
-    preorderItems,
+    // Store data (chỉ bao gồm các sản phẩm đã được tích chọn thanh toán)
+    cart: checkoutCart,
+    cartTotal: checkoutTotal,
+    hasPreorderItems: checkoutHasPreorder,
+    preorderItems: checkoutPreorderItems,
     user,
     wishlist,
     // Customer vs Guest status
@@ -529,6 +677,8 @@ export function useCheckout() {
     appliedDiscount,
     setAppliedDiscount,
     couponError,
+    availableCoupons,
+    applyCouponCode,
     agreeTerms,
     setAgreeTerms,
     createAccount,
@@ -552,6 +702,9 @@ export function useCheckout() {
     handleSubmitOrder,
     handleResendOrderEmail,
     copyOrderCode,
+    provinces,
+    communes,
+    isLoadingAddress,
   };
 }
 

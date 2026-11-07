@@ -15,6 +15,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import jakarta.servlet.http.HttpServletRequest;
+import vn.nhaxinh.vnpay.VNPayConfig;
 
 @Service
 public class VnPayService {
@@ -71,7 +75,7 @@ public class VnPayService {
         parameters.put("vnp_OrderInfo", "Thanh toan don hang " + orderCode);
         parameters.put("vnp_OrderType", "other");
         parameters.put("vnp_Locale", "vn");
-        parameters.put("vnp_ReturnUrl", returnUrl);
+        parameters.put("vnp_ReturnUrl", resolveReturnUrl());
         parameters.put("vnp_IpAddr", normalizeIp(clientIp));
         parameters.put("vnp_CreateDate", VNPAY_DATE.format(now));
         parameters.put("vnp_ExpireDate", VNPAY_DATE.format(now.plusMinutes(15)));
@@ -110,6 +114,32 @@ public class VnPayService {
 
     public String getFrontendResultUrl() {
         return frontendResultUrl;
+    }
+
+    /**
+     * URL trả về VNPay dựng theo đúng IP/host:port mà khách đang mở client
+     * (VD: http://192.168.1.10:5173/api/v1/payments/vnpay/return – đi qua Vite proxy về backend).
+     * Nếu không xác định được (gọi ngoài trình duyệt) thì dùng app.vnpay.return-url.
+     */
+    String resolveReturnUrl() {
+        String origin = VNPayConfig.resolveClientOrigin(currentRequest());
+        return origin != null ? origin + VNPayConfig.VNP_RETURN_PATH : returnUrl;
+    }
+
+    /**
+     * Trang kết quả thanh toán trên client theo đúng IP/host của khách
+     * (lấy từ X-Forwarded-Host do Vite proxy gắn khi VNPay redirect về).
+     */
+    public String resolveFrontendResultUrl(HttpServletRequest request) {
+        String origin = VNPayConfig.resolveForwardedOrigin(request);
+        return origin != null ? origin + "/payment/result" : frontendResultUrl;
+    }
+
+    private static HttpServletRequest currentRequest() {
+        if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs) {
+            return attrs.getRequest();
+        }
+        return null;
     }
 
     public String getFrontendCheckoutUrl() {

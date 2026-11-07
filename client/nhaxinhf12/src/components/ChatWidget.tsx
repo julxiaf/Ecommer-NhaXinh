@@ -179,7 +179,7 @@ export default function ChatWidget() {
 
             <div className="flex items-center gap-1.5">
               {/* Nút mở Zalo trực tiếp trong header */}
-              <a
+              {/* <a
                 href="https://zalo.me/0974933486"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -192,7 +192,7 @@ export default function ChatWidget() {
                   className="w-3.5 h-3.5 object-contain"
                 />
                 <span>Zalo</span>
-              </a>
+              </a> */}
 
               {/* Nút chuyển đổi vai trò phản hồi (AI Bot <-> Chuyên viên CSKH) */}
               <button

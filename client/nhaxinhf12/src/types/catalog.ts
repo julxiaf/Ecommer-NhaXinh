@@ -7,6 +7,7 @@ export interface Product {
   image: string;
   image2?: string;
   category: string;
+  categorySlug?: string;
   categoryId?: number;
   brand?: string;
   isNew?: boolean;
@@ -62,6 +63,8 @@ export interface CategoryItem {
   description?: string;
   imageUrl?: string;
   productCount?: number;
+  categoryGroup?: "PRODUCT" | "ROOM" | "COLLECTION" | "PAGE" | "STATIC" | string;
+  isCollection?: boolean;
   to: string;
   items?: { label: string; to: string }[];
 }
@@ -108,6 +111,8 @@ export interface BackendProductDetail {
   shortDescription?: string | null;
   description?: string | null;
   specifications?: string | null;
+  isPreorder?: boolean | null;
+  stockStatus?: string | null;
   brand?: {
     id: number;
     name: string;
@@ -118,6 +123,8 @@ export interface BackendProductDetail {
     id: number;
     name: string;
     slug: string;
+    categoryGroup?: string;
+    isCollection?: boolean;
   }[];
   media?: ProductMediaItem[];
   variants?: ProductVariant[];
@@ -132,4 +139,7 @@ export interface BackendCategoryResponse {
   imageUrl?: string | null;
   sortOrder?: number;
   isActive?: boolean;
+  isDeleted?: boolean;
+  isCollection?: boolean;
+  categoryGroup?: string;
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import type { AdminArticle } from "../../services/admin/types";
 import { generateSlug } from "../../services/admin/adminService";
+import { DEFAULT_PLACEHOLDER_IMAGE } from "../../services/productService";
 import { usePagination } from "../usePagination";
 
 interface UseAdminArticlesParams {
@@ -11,11 +12,15 @@ interface UseAdminArticlesParams {
 export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesParams) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "published" | "hidden">("all");
+  const [activeTab, setActiveTab] = useState<"active" | "trash">("active");
   const [showModal, setShowModal] = useState(false);
   const [editingArt, setEditingArt] = useState<AdminArticle | null>(null);
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<AdminArticle["category"]>("Góc cảm hứng");
+  const [collectionSlug, setCollectionSlug] = useState<string>("");
+  const [status, setStatus] = useState<"published" | "hidden">("published");
   const [summary, setSummary] = useState("");
   const [content, setContent] = useState("");
   const [image, setImage] = useState("");
@@ -23,25 +28,32 @@ export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesPa
   const filteredArticles = useMemo(() => {
     const q = search.toLowerCase().trim();
     return articles.filter((a) => {
+      const matchTab = activeTab === "trash" ? Boolean(a.isDeleted) : !a.isDeleted;
       const matchCat = categoryFilter === "all" || a.category === categoryFilter;
+      const matchStatus =
+        statusFilter === "all" ||
+        (statusFilter === "published" && (!a.status || a.status === "" || a.status === "published")) ||
+        (statusFilter === "hidden" && a.status === "hidden");
       const matchSearch =
         !q ||
         a.title.toLowerCase().includes(q) ||
         a.summary.toLowerCase().includes(q) ||
         a.author.toLowerCase().includes(q);
-      return matchCat && matchSearch;
+      return matchTab && matchCat && matchStatus && matchSearch;
     });
-  }, [articles, search, categoryFilter]);
+  }, [articles, search, categoryFilter, statusFilter, activeTab]);
 
-  const pagination = usePagination(filteredArticles, 6, [search, categoryFilter]);
+  const pagination = usePagination(filteredArticles, 6, [search, categoryFilter, statusFilter, activeTab]);
 
   const openCreate = () => {
     setEditingArt(null);
     setTitle("");
-    setCategory("Góc cảm hứng");
+    setCategory("Bộ sưu tập");
+    setCollectionSlug("");
+    setStatus("published");
     setSummary("");
     setContent("");
-    setImage("https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=600&q=80");
+    setImage("");
     setShowModal(true);
   };
 
@@ -49,6 +61,8 @@ export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesPa
     setEditingArt(art);
     setTitle(art.title);
     setCategory(art.category);
+    setCollectionSlug(art.collectionSlug || "");
+    setStatus((art.status as any) === "hidden" ? "hidden" : "published");
     setSummary(art.summary);
     setContent(art.content);
     setImage(art.image);
@@ -58,15 +72,16 @@ export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesPa
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveArticle({
-      id: editingArt ? editingArt.id : `art-${Date.now()}`,
+      id: editingArt ? editingArt.id : undefined,
       title,
-      slug: generateSlug(title),
+      slug: editingArt ? editingArt.slug : generateSlug(title),
       category,
+      collectionSlug: category === "Bộ sưu tập" ? (collectionSlug.trim() || undefined) : undefined,
       author: "Ban Biên Tập",
       views: editingArt ? editingArt.views : 1,
       createdAt: editingArt ? editingArt.createdAt : new Date().toLocaleDateString("vi-VN"),
-      status: "published",
-      image: image || "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=600&q=80",
+      status,
+      image: image || DEFAULT_PLACEHOLDER_IMAGE,
       summary,
       content: content || summary,
     });
@@ -78,6 +93,10 @@ export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesPa
     setSearch,
     categoryFilter,
     setCategoryFilter,
+    statusFilter,
+    setStatusFilter,
+    activeTab,
+    setActiveTab,
     filteredArticles,
     pagination,
     showModal,
@@ -87,6 +106,10 @@ export function useAdminArticles({ articles, onSaveArticle }: UseAdminArticlesPa
     setTitle,
     category,
     setCategory,
+    collectionSlug,
+    setCollectionSlug,
+    status,
+    setStatus,
     summary,
     setSummary,
     content,

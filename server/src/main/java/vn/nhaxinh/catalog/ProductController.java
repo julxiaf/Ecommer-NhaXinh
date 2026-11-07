@@ -13,8 +13,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -125,16 +128,17 @@ public class ProductController extends BaseController {
     // DETAIL
     // -----------------------------------------------------------------------
 
-    /**
-     * Full product detail by numeric ID (only ACTIVE products are visible).
-     */
-    @GetMapping("/{id}")
-    public ResponseEntity<ProductDetailResponse> getProductById(@PathVariable Long id) {
-        return productService.findByIdAndStatus(id, "ACTIVE")
-                .map(this::toDetailResponse)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
+    // /**
+    //  * Full product detail by numeric ID (only ACTIVE products are visible).
+    //  */
+    // @GetMapping("/{id}")
+    // public ResponseEntity<ProductDetailResponse> getProductById(@PathVariable Long id) {
+    //     return productService.findByIdAndStatus(id, "ACTIVE")
+    //             .filter(p -> !Boolean.TRUE.equals(p.getIsDeleted()))
+    //             .map(this::toDetailResponse)
+    //             .map(ResponseEntity::ok)
+    //             .orElse(ResponseEntity.notFound().build());
+    // }
 
     /**
      * Full product detail by SEO-friendly slug (only ACTIVE products are visible).
@@ -142,9 +146,28 @@ public class ProductController extends BaseController {
     @GetMapping("/slug/{slug}")
     public ResponseEntity<ProductDetailResponse> getProductBySlug(@PathVariable String slug) {
         return productService.findBySlugAndStatus(slug, "ACTIVE")
+                .filter(p -> !Boolean.TRUE.equals(p.getIsDeleted()))
                 .map(this::toDetailResponse)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        productService.softDelete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<Void> restoreProduct(@PathVariable Long id) {
+        productService.restore(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}/restore")
+    public ResponseEntity<Void> restoreProductPatch(@PathVariable Long id) {
+        productService.restore(id);
+        return ResponseEntity.noContent().build();
     }
 
     // -----------------------------------------------------------------------
@@ -260,12 +283,14 @@ public class ProductController extends BaseController {
 
     /** Builds a {@link ProductDetailResponse} enriched with live stock data. */
     private ProductDetailResponse toDetailResponse(Product product) {
+        boolean isPre = Boolean.TRUE.equals(product.getIsPreorder()) || "PRE_ORDER".equalsIgnoreCase(product.getStockStatus());
         return ProductDetailResponse.from(product, variantId ->
                 inventoryService.findByVariantId(variantId)
-                        .map(inv -> new ProductDetailResponse.StockInfo(
-                                Math.max(0, inv.getQuantityOnHand() - inv.getQuantityReserved())
-                        ))
-                        .orElse(new ProductDetailResponse.StockInfo(0))
+                        .map(inv -> {
+                            int qty = Math.max(0, inv.getQuantityOnHand() - inv.getQuantityReserved());
+                            return new ProductDetailResponse.StockInfo(qty, qty > 0 && !isPre, isPre, isPre ? "PRE_ORDER" : (qty > 0 ? "IN_STOCK" : "OUT_OF_STOCK"));
+                        })
+                        .orElse(new ProductDetailResponse.StockInfo(0, false, isPre, isPre ? "PRE_ORDER" : "OUT_OF_STOCK"))
         );
     }
 

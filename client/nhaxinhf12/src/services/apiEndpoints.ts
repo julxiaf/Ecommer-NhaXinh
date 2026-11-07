@@ -4,7 +4,7 @@
  * Tách biệt hoàn toàn giữa định nghĩa endpoint và logic nghiệp vụ của các service.
  */
 
-export const API_BASE = "/api/v1";
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "/api/v1";
 
 export const ENDPOINTS = {
   // ── 1. AUTHENTICATION & SESSION ──
@@ -47,11 +47,17 @@ export const ENDPOINTS = {
     MEDIA_IMAGE: (mediaId: number | string) => `${API_BASE}/products/media/${mediaId}/image`,
   },
 
-  // ── 4. CATEGORIES (PUBLIC) ──
+  // ── 4. CATEGORIES & COLLECTIONS (PUBLIC) ──
   CATEGORIES: {
     BASE: `${API_BASE}/categories`,
     BY_ID: (id: number | string) => `${API_BASE}/categories/${id}`,
     BY_SLUG: (slug: string) => `${API_BASE}/categories/slug/${encodeURIComponent(slug)}`,
+  },
+
+  COLLECTIONS: {
+    BASE: `${API_BASE}/collections`,
+    BY_ID: (id: number | string) => `${API_BASE}/collections/${id}`,
+    BY_SLUG: (slug: string) => `${API_BASE}/collections/slug/${encodeURIComponent(slug)}`,
   },
 
   // ── 5. SHOPPING CART (X-Cart-Token) ──
@@ -60,6 +66,7 @@ export const ENDPOINTS = {
     SESSION: `${API_BASE}/cart/session`,
     ITEMS: `${API_BASE}/cart/items`,
     ITEM_BY_ID: (itemId: number | string) => `${API_BASE}/cart/items/${itemId}`,
+    ITEM_BY_VARIANT: (variantId: number | string) => `${API_BASE}/cart/items/by-variant/${variantId}`,
     CLEAR: `${API_BASE}/cart`,
   },
 
@@ -82,9 +89,18 @@ export const ENDPOINTS = {
     VNPAY_RETURN: `${API_BASE}/payments/vnpay/return`,
   },
 
+  // ── 8. ARTICLES & BLOGS & COLLECTIONS ──
+  ARTICLES: {
+    BASE: `${API_BASE}/articles`,
+    BY_ID_OR_SLUG: (idOrSlug: string | number) => `${API_BASE}/articles/${encodeURIComponent(idOrSlug)}`,
+    COLLECTION: (collectionSlug: string) => `${API_BASE}/articles/collection/${encodeURIComponent(collectionSlug)}`,
+    UPLOAD_IMAGE: `${API_BASE}/articles/upload-image`,
+  },
+
   // ── 8. COUPONS & DISCOUNTS ──
   COUPONS: {
     VALIDATE: `${API_BASE}/coupons/validate`,
+    PUBLIC: `${API_BASE}/coupons/public`,
   },
 
   // ── 9. NOTIFICATIONS & EMAILS ──
@@ -112,9 +128,13 @@ export const ENDPOINTS = {
   // ── 9. POLICIES (CHÍNH SÁCH) ──
   POLICIES: {
     BASE: `${API_BASE}/policies`,
+    ALL: `${API_BASE}/policies/all`,
     BY_SLUG: (slug: string) => `${API_BASE}/policies/${encodeURIComponent(slug)}`,
   },
-
+  ADDRESSKIT:{
+    PROVINCEALL: `/address-kit/2025-07-01/provinces`,
+    PROVINCECODE: (id: string) => `/address-kit/2025-07-01/provinces/${id}/communes`,
+  },
   // ── 10. ADMIN PORTAL ──
   ADMIN: {
     // Dashboard & Metrics
@@ -166,13 +186,22 @@ export const ENDPOINTS = {
       BASE: `${API_BASE}/admin/policies`,
       BY_ID: (id: number | string) => `${API_BASE}/admin/policies/${id}`,
     },
+
+    // Quản lý Bài viết & Cẩm nang & Bộ sưu tập
+    ARTICLES: {
+      BASE: `${API_BASE}/admin/articles`,
+      BY_ID: (id: number | string) => `${API_BASE}/admin/articles/${id}`,
+      STATUS: (id: number | string) => `${API_BASE}/admin/articles/${id}/status`,
+      RESTORE: (id: number | string) => `${API_BASE}/admin/articles/${id}/restore`,
+      PERMANENT: (id: number | string) => `${API_BASE}/admin/articles/${id}/permanent`,
+    },
   },
 } as const;
 
 /**
  * Tiện ích ghép query parameters vào endpoint URL một cách an toàn và sạch sẽ.
  */
-export function buildUrlWithQuery(url: string, params?: Record<string, any>): string {
+export function buildUrlWithQuery(url: string, params?: Record<string, unknown>): string {
   if (!params) return url;
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

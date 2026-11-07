@@ -1,20 +1,37 @@
 .policy-page,
 .policy-admin-page {
   min-height: 70vh;
-  padding: 56px 24px 80px;
+  padding: 40px 16px 80px;
   background: #f7f6f3;
   color: #34312e;
   text-align: left;
 }
 
+/* ── Bố cục Lưới: Sidebar + Article ── */
+.policy-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .policy-layout {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
 .policy-card,
 .policy-admin-card {
-  width: min(100%, 920px);
-  margin: 0 auto;
-  padding: clamp(28px, 5vw, 64px);
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+  padding: clamp(24px, 4vw, 56px);
   border: 1px solid #e8e4df;
+  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 16px 45px rgba(40, 32, 24, 0.06);
+  box-shadow: 0 10px 35px rgba(40, 32, 24, 0.05);
 }
 
 .policy-eyebrow {
@@ -22,26 +39,97 @@
   color: #927451;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .policy-card h1,
 .policy-admin-card h1 {
   margin: 0 0 20px;
   color: #28231e;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(32px, 5vw, 48px);
-  font-weight: 400;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
 .policy-introduction {
-  padding-bottom: 28px;
+  padding-bottom: 24px;
   border-bottom: 1px solid #e8e4df;
-  color: #69625b;
-  font-size: 17px;
+  color: #5d564f;
+  font-size: 16px;
   line-height: 1.8;
+}
+
+/* ── Nội dung Chính sách Động từ Máy chủ (Dynamic HTML Content) ── */
+.policy-dynamic-content {
+  color: #443e38;
+  margin-top: 24px;
+}
+
+.policy-dynamic-content h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: #241f1a;
+  margin: 32px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0ece7;
+}
+
+.policy-dynamic-content h3 {
+  font-size: 17px;
+  font-weight: 600;
+  color: #2c251f;
+  margin: 24px 0 10px;
+}
+
+.policy-dynamic-content p {
+  margin: 0 0 16px;
+}
+
+.policy-dynamic-content ul,
+.policy-dynamic-content ol {
+  margin: 0 0 20px;
+  padding-left: 24px;
+}
+
+.policy-dynamic-content li {
+  margin-bottom: 8px;
+}
+
+.policy-dynamic-content strong {
+  color: #1a1612;
+  font-weight: 600;
+}
+
+.policy-dynamic-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 14px;
+}
+
+.policy-dynamic-content th,
+.policy-dynamic-content td {
+  border: 1px solid #e8e4df;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.policy-dynamic-content th {
+  background: #faf7f2;
+  font-weight: 600;
+  color: #28231e;
+}
+
+.policy-dynamic-content blockquote {
+  margin: 20px 0;
+  padding: 12px 20px;
+  border-left: 4px solid #b38e5d;
+  background: #faf7f2;
+  color: #554e46;
+  font-style: italic;
 }
 
 .policy-section {
@@ -51,15 +139,15 @@
 .policy-section h2 {
   margin: 0 0 14px;
   color: #302a24;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 25px;
-  font-weight: 500;
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 600;
 }
 
 .policy-body {
   color: #514b45;
-  font-size: 16px;
-  line-height: 1.9;
+  font-size: 15px;
+  line-height: 1.85;
   white-space: pre-line;
 }
 
@@ -130,6 +218,22 @@
   background: #f5f2ee;
 }
 
+/* ── Hiệu ứng Shimmer Skeleton ── */
+.policy-skeleton-shimmer {
+  background: linear-gradient(90deg, #f2eee9 25%, #eae4dc 50%, #f2eee9 75%);
+  background-size: 200% 100%;
+  animation: policyShimmer 1.5s infinite;
+}
+
+@keyframes policyShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 .policy-admin-page {
   min-height: 100vh;
 }
@@ -183,12 +287,12 @@
 @media (max-width: 600px) {
   .policy-page,
   .policy-admin-page {
-    padding: 28px 14px 48px;
+    padding: 24px 12px 48px;
   }
 
   .policy-card,
   .policy-admin-card {
-    padding: 26px 20px;
+    padding: 22px 16px;
   }
 
   .policy-admin-actions .policy-button {

@@ -4,6 +4,7 @@ import PermissionGate from "../../components/admin/PermissionGate";
 import NewOrderAlertToast from "../../components/admin/NewOrderAlertToast";
 import DashboardView from "./views/DashboardView";
 import CategoryView from "./views/CategoryView";
+import CollectionView from "./views/CollectionView";
 import ProductView from "./views/ProductView";
 import OrderView from "./views/OrderView";
 import RolePermissionView from "./views/RolePermissionView";
@@ -17,9 +18,14 @@ import NotificationView from "./views/NotificationView";
 import SettingView from "./views/SettingView";
 import AuditLogView from "./views/AuditLogView";
 import { useAdminPortal } from "../../hooks/admin/useAdminPortal";
+import type { AuthSession } from "../../services/userService";
 import "./admin.css";
 
-export default function AdminPortal() {
+interface AdminPortalProps {
+  session?: AuthSession | null;
+}
+
+export default function AdminPortal({ session }: AdminPortalProps) {
   const {
     activeTab,
     setActiveTab,
@@ -59,7 +65,10 @@ export default function AdminPortal() {
     handleConfirmOrderPayment,
     handleUpdateOrderShipping,
     handleCancelOrder,
+    handleDeleteOrder,
+    handleRestoreOrder,
     handleRefreshOrders,
+    handleCreateOrder,
     handleUpdateRolePermissions,
     handleSaveStaff,
     handleUpdateStaffStatus,
@@ -72,7 +81,9 @@ export default function AdminPortal() {
     handleSaveDiscount,
     handleDeleteDiscount,
     handleSaveArticle,
+    handleToggleArticleStatus,
     handleDeleteArticle,
+    handleRestoreArticle,
     handleCreateNotification,
     handleMarkNotifRead,
     handleMarkAllNotifRead,
@@ -81,7 +92,7 @@ export default function AdminPortal() {
     newOrderAlert,
     handleDismissOrderAlert,
     handleViewNewOrder,
-  } = useAdminPortal();
+  } = useAdminPortal(session);
 
   return (
     <div className={`admin-portal-shell ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
@@ -101,6 +112,7 @@ export default function AdminPortal() {
         isMobileOpen={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
         currentRole={currentRole}
+        currentUserName={session?.fullName || session?.username || undefined}
         pendingOrdersCount={pendingOrdersCount}
         unreadNotifCount={unreadNotifCount}
         openTicketsCount={openTicketsCount}
@@ -150,6 +162,25 @@ export default function AdminPortal() {
               <CategoryView
                 categories={categories}
                 currentRole={currentRole}
+                currentUserName={session?.fullName || session?.username || undefined}
+                onSaveCategory={handleSaveCategory}
+                onDeleteCategory={handleDeleteCategory}
+                onRestoreCategory={handleRestoreCategory}
+              />
+            </PermissionGate>
+          )}
+
+          {activeTab === "collections" && (
+            <PermissionGate
+              permission="categories.view"
+              currentRole={currentRole}
+              fallbackMessage="Bạn không có quyền xem quản lý bộ sưu tập."
+            >
+              <CollectionView
+                categories={categories}
+                products={products}
+                currentRole={currentRole}
+                currentUserName={session?.fullName || session?.username || undefined}
                 onSaveCategory={handleSaveCategory}
                 onDeleteCategory={handleDeleteCategory}
                 onRestoreCategory={handleRestoreCategory}
@@ -167,6 +198,7 @@ export default function AdminPortal() {
                 products={products}
                 categories={categories}
                 currentRole={currentRole}
+                currentUserName={session?.fullName || session?.username || undefined}
                 onSaveProduct={handleSaveProduct}
                 onDeleteProduct={handleDeleteProduct}
                 onRestoreProduct={handleRestoreProduct}
@@ -182,12 +214,17 @@ export default function AdminPortal() {
             >
               <OrderView
                 orders={orders}
+                products={products}
                 currentRole={currentRole}
+                currentUserName={session?.fullName || session?.username || undefined}
                 onUpdateStatus={handleUpdateOrderStatus}
                 onConfirmPayment={handleConfirmOrderPayment}
                 onUpdateShipping={handleUpdateOrderShipping}
                 onCancelOrder={handleCancelOrder}
+                onDeleteOrder={handleDeleteOrder}
+                onRestoreOrder={handleRestoreOrder}
                 onRefreshOrders={handleRefreshOrders}
+                onCreateOrder={handleCreateOrder}
               />
             </PermissionGate>
           )}
@@ -232,6 +269,8 @@ export default function AdminPortal() {
                 currentRole={currentRole}
                 onSaveArticle={handleSaveArticle}
                 onDeleteArticle={handleDeleteArticle}
+                onRestoreArticle={handleRestoreArticle}
+                onToggleStatus={handleToggleArticleStatus}
               />
             </PermissionGate>
           )}

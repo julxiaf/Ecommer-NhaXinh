@@ -41,7 +41,7 @@ public class PolicyService {
 
     @Transactional(readOnly = true)
     public List<PolicyResponse> getPublishedPolicies() {
-        return policyRepository.findByStatusOrderByCreatedAtDesc("PUBLISHED").stream()
+        return policyRepository.findByStatusOrderByIdAsc("PUBLISHED").stream()
                 .map(PolicyResponse::from)
                 .collect(Collectors.toList());
     }
@@ -55,8 +55,29 @@ public class PolicyService {
 
     @Transactional(readOnly = true)
     public PolicyResponse getPolicyBySlug(String slug) {
-        Policy policy = policyRepository.findBySlug(slug)
-                .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND, "Không tìm thấy chính sách với mã: " + slug));
+        return getPublishedPolicyBySlug(slug);
+    }
+
+    @Transactional(readOnly = true)
+    public PolicyResponse getPublishedPolicyBySlug(String slug) {
+        String cleanSlug = slug != null ? slug.trim().toLowerCase() : "";
+        Optional<Policy> policyOpt = policyRepository.findBySlug(cleanSlug);
+
+        if (policyOpt.isEmpty()) {
+            policyOpt = policyRepository.findByTemplateType(cleanSlug);
+        }
+        if (policyOpt.isEmpty() && cleanSlug.startsWith("chinh-sach-")) {
+            String shortSlug = cleanSlug.replaceFirst("^chinh-sach-", "");
+            policyOpt = policyRepository.findBySlug(shortSlug)
+                    .or(() -> policyRepository.findByTemplateType(shortSlug));
+        }
+        if (policyOpt.isEmpty()) {
+            policyOpt = policyRepository.findBySlug("chinh-sach-" + cleanSlug);
+        }
+
+        Policy policy = policyOpt
+                .filter(p -> "PUBLISHED".equalsIgnoreCase(p.getStatus()))
+                .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND, "Không tìm thấy hoặc chính sách chưa được công bố: " + slug));
         return PolicyResponse.from(policy);
     }
 

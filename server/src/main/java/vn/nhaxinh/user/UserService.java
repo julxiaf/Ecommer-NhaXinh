@@ -48,7 +48,12 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public Optional<User> findByEmail(String email) {
-        return userRepository.findByEmail(email);
+        if (email == null || email.isBlank()) {
+            return Optional.empty();
+        }
+        String cleanEmail = email.trim();
+        return userRepository.findByEmailIgnoreCase(cleanEmail)
+                .or(() -> userRepository.findByEmail(cleanEmail));
     }
 
     /**
@@ -63,21 +68,32 @@ public class UserService {
             String email, String phone, String fullName,
             boolean marketingConsent) {
 
-        if (username != null && userRepository.findByUsername(username).isPresent()) {
-            throw new IllegalArgumentException("USERNAME_TAKEN");
-        }
-        if (email != null && userRepository.findByEmail(email).isPresent()) {
+        String cleanEmail = email != null ? email.trim().toLowerCase() : null;
+        String cleanPhone = phone != null ? phone.trim() : null;
+
+        if (cleanEmail != null && findByEmail(cleanEmail).isPresent()) {
             throw new IllegalArgumentException("EMAIL_TAKEN");
         }
-        if (phone != null && userRepository.findByPhone(phone).isPresent()) {
+        if (cleanPhone != null && userRepository.findByPhone(cleanPhone).isPresent()) {
             throw new IllegalArgumentException("PHONE_TAKEN");
         }
 
+        // Không yêu cầu người dùng nhập username: tự động gán theo email
+        String resolvedUsername = (username != null && !username.isBlank())
+                ? username.trim()
+                : cleanEmail;
+        if (resolvedUsername != null && userRepository.findByUsername(resolvedUsername).isPresent()) {
+            if (username != null && !username.isBlank()) {
+                throw new IllegalArgumentException("USERNAME_TAKEN");
+            }
+            resolvedUsername = cleanEmail + "_" + (System.currentTimeMillis() % 100000);
+        }
+
         User user = new User();
-        user.setUsername(username);
+        user.setUsername(resolvedUsername);
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
-        user.setEmail(email);
-        user.setPhone(phone);
+        user.setEmail(cleanEmail);
+        user.setPhone(cleanPhone);
         user.setFullName(fullName);
         user.setAccountType("REGISTERED");
         user.setStatus("ACTIVE");

@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -16,11 +18,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.MultiValueMap;
 import vn.nhaxinh.audit.AuditLogService;
 import vn.nhaxinh.cart.*;
+import vn.nhaxinh.catalog.Category;
+import vn.nhaxinh.catalog.CollectionRepository;
 import vn.nhaxinh.coupon.Coupon;
 import vn.nhaxinh.coupon.CouponService;
+import vn.nhaxinh.coupon.CouponValidationResult;
 import vn.nhaxinh.inventory.*;
+import vn.nhaxinh.notification.NotificationService;
 import vn.nhaxinh.order.*;
-import vn.nhaxinh.risk.*;
 import vn.nhaxinh.security.*;
 import vn.nhaxinh.user.*;
 
@@ -49,9 +54,12 @@ public class CheckoutService {
     private final InventoryService inventoryService;
     private final AuditLogService auditLogService;
     private final VnPayService vnPayService;
-    private final OrderRiskService orderRiskService;
     private final ObjectMapper objectMapper;
     private final CouponService couponService;
+    private final NotificationService notificationService;
+
+    @Autowired(required = false)
+    private CollectionRepository collectionRepository;
 
     // Lưu tạm các phiên thanh toán VNPay chờ callback thành công mới tạo Order & Payment
     private final Map<String, PendingVnPayCheckout> pendingVnPayCheckouts = new ConcurrentHashMap<>();
@@ -67,7 +75,6 @@ public class CheckoutService {
             InventoryService inventoryService,
             AuditLogService auditLogService,
             VnPayService vnPayService,
-            OrderRiskService orderRiskService,
             ObjectMapper objectMapper
     ) {
         this(
@@ -80,8 +87,37 @@ public class CheckoutService {
                 inventoryService,
                 auditLogService,
                 vnPayService,
-                orderRiskService,
                 objectMapper,
+                null,
+                null
+        );
+    }
+
+    public CheckoutService(
+            CartService cartService,
+            UserService userService,
+            OrderService orderService,
+            OrderRepository orderRepository,
+            PaymentRepository paymentRepository,
+            PaymentWebhookEventRepository webhookRepository,
+            InventoryService inventoryService,
+            AuditLogService auditLogService,
+            VnPayService vnPayService,
+            ObjectMapper objectMapper,
+            CouponService couponService
+    ) {
+        this(
+                cartService,
+                userService,
+                orderService,
+                orderRepository,
+                paymentRepository,
+                webhookRepository,
+                inventoryService,
+                auditLogService,
+                vnPayService,
+                objectMapper,
+                couponService,
                 null
         );
     }
@@ -97,9 +133,9 @@ public class CheckoutService {
             InventoryService inventoryService,
             AuditLogService auditLogService,
             VnPayService vnPayService,
-            OrderRiskService orderRiskService,
             ObjectMapper objectMapper,
-            CouponService couponService
+            CouponService couponService,
+            NotificationService notificationService
     ) {
         this.cartService = cartService;
         this.userService = userService;
@@ -110,9 +146,9 @@ public class CheckoutService {
         this.inventoryService = inventoryService;
         this.auditLogService = auditLogService;
         this.vnPayService = vnPayService;
-        this.orderRiskService = orderRiskService;
         this.objectMapper = objectMapper;
         this.couponService = couponService;
+        this.notificationService = notificationService;
     }
 
     public CheckoutResponse checkout(
@@ -176,13 +212,14 @@ public class CheckoutService {
         BigDecimal subtotal = ZERO;
         for (CartItem cartItem : cartItems) {
             var variant = cartItem.getVariant();
+            boolean isPreorder = variant.getProduct() != null && Boolean.TRUE.equals(variant.getProduct().getIsPreorder());
             Inventory inventory = lockedInventories.get(variant.getId());
-            if (inventory == null) {
+            if (!isPreorder && inventory == null) {
                 throw new ApiException(ApiErrorCode.PRODUCT_OUT_OF_STOCK,
                         "Sản phẩm '" + variant.getName() + "' (SKU: " + variant.getSku() + ") hiện chưa sẵn sàng xuất kho.");
             }
-            int availableQuantity = inventory.getAvailableQuantity();
-            if (availableQuantity < cartItem.getQuantity()) {
+            int availableQuantity = inventory != null ? inventory.getAvailableQuantity() : 0;
+            if (!isPreorder && availableQuantity < cartItem.getQuantity()) {
                 throw new ApiException(ApiErrorCode.PRODUCT_INSUFFICIENT_STOCK,
                         String.format("Sản phẩm '%s' (SKU: %s) không đủ tồn kho (Còn: %d, yêu cầu: %d). Vui lòng cập nhật lại giỏ hàng.",
                                 variant.getName(), variant.getSku(), Math.max(0, availableQuantity), cartItem.getQuantity()));
@@ -202,7 +239,9 @@ public class CheckoutService {
                 request.couponCode(),
                 subtotal,
                 shippingFee,
-                user != null ? user.getId() : null
+                user != null ? user.getId() : null,
+                request.recipientPhone(),
+                cart.getItems()
         );
         BigDecimal discountAmount = couponEval.discountAmount();
         BigDecimal totalAmount = subtotal.add(shippingFee).subtract(discountAmount).max(ZERO);
@@ -317,7 +356,7 @@ public class CheckoutService {
         payment = paymentRepository.saveAndFlush(payment);
 
         // 8. Ghi nhận đánh giá rủi ro & Cảnh báo (nếu phát hiện nghi vấn)
-        recordRiskIfSuspicious(order, riskEvaluation);
+        // recordRiskIfSuspicious(order, riskEvaluation);
 
         cart.setStatus("CONVERTED");
         cartService.save(cart);
@@ -333,6 +372,25 @@ public class CheckoutService {
                         "amount", payment.getAmount(),
                         "itemCount", cartItems.size()
                 )), clientIp);
+
+        // Với đơn hàng COD (Thanh toán tiền mặt khi nhận hàng), chờ xác nhận đơn thành công (CONFIRMED) mới gửi email cho khách hàng
+        boolean isCod = "CASH_ON_DELIVERY".equalsIgnoreCase(payment.getPaymentMethod())
+                || "COD".equalsIgnoreCase(payment.getPaymentMethod());
+        if (isCod) {
+            log.info("[CHECKOUT-COD] Đơn hàng COD #{} ở trạng thái PENDING — chờ xác nhận đơn (CONFIRMED) mới gửi email cho khách hàng.",
+                    order.getOrderCode());
+        } else if (notificationService != null) {
+            final Order orderSnapshot = order;
+            final List<OrderItem> itemsSnapshot = List.copyOf(order.getItems());
+            final String methodSnapshot = payment.getPaymentMethod();
+            CompletableFuture.runAsync(() -> {
+                try {
+                    notificationService.sendOrderConfirmationEmail(orderSnapshot, itemsSnapshot, methodSnapshot);
+                } catch (Exception emailEx) {
+                    log.warn("[CHECKOUT-EMAIL] Không thể gửi email xác nhận đơn hàng #{}: {}", orderSnapshot.getOrderCode(), emailEx.getMessage());
+                }
+            });
+        }
 
         return new CheckoutResponse(
                 order.getId(),
@@ -432,6 +490,25 @@ public class CheckoutService {
                 )), clientIp);
         log.info("[PAYMENT-RETRY] orderCode={} paymentId={} method={} amount={}",
                 order.getOrderCode(), payment.getId(), payment.getPaymentMethod(), payment.getAmount());
+        // Với đơn hàng COD (Thanh toán tiền mặt khi nhận hàng), chờ xác nhận đơn thành công (CONFIRMED) mới gửi email cho khách hàng
+        boolean isCod = "CASH_ON_DELIVERY".equalsIgnoreCase(payment.getPaymentMethod())
+                || "COD".equalsIgnoreCase(payment.getPaymentMethod());
+        if (isCod) {
+            log.info("[CHECKOUT-COD] Đơn hàng COD #{} ở trạng thái PENDING — chờ xác nhận đơn (CONFIRMED) mới gửi email cho khách hàng.",
+                    order.getOrderCode());
+        } else if (notificationService != null) {
+            final Order orderSnapshot = order;
+            final List<OrderItem> itemsSnapshot = List.copyOf(orderItems);
+            final String methodSnapshot = payment.getPaymentMethod();
+            CompletableFuture.runAsync(() -> {
+                try {
+                    notificationService.sendOrderConfirmationEmail(orderSnapshot, itemsSnapshot, methodSnapshot);
+                } catch (Exception emailEx) {
+                    log.warn("[CHECKOUT-EMAIL] Không thể gửi email xác nhận đơn hàng #{}: {}", orderSnapshot.getOrderCode(), emailEx.getMessage());
+                }
+            });
+        }
+
         return new CheckoutResponse(
                 order.getId(), order.getOrderCode(), order.getOrderStatus(), order.getPaymentStatus(),
                 order.getTotalAmount(), payment.getId(), payment.getPaymentMethod(),
@@ -527,9 +604,20 @@ public class CheckoutService {
             order.setPaymentStatus("PAID");
 
             List<InventoryMovement> movements = new ArrayList<>(cartItems.size());
+            List<String> outOfStockWarnings = new ArrayList<>();
             for (CartItem cartItem : cartItems) {
                 var variant = cartItem.getVariant();
+                boolean isPreorder = variant.getProduct() != null && Boolean.TRUE.equals(variant.getProduct().getIsPreorder());
                 Inventory inventory = lockedInventories.get(variant.getId());
+                int availableStock = inventory != null ? inventory.getAvailableQuantity() : 0;
+
+                // Nếu sản phẩm không phải Pre-Order mà tồn kho sẵn sàng < số lượng đặt (do race condition mua đồng thời)
+                if (!isPreorder && availableStock < cartItem.getQuantity()) {
+                    log.warn("[VNPAY-OVERSOLD] Đơn hàng VNPay #{} có sản phẩm '{}' bị thiếu tồn kho thực tế khi khớp lệnh (còn {}, yêu cầu {})",
+                            pending.orderCode(), variant.getName(), Math.max(0, availableStock), cartItem.getQuantity());
+                    outOfStockWarnings.add(String.format("'%s' (thiếu %d món)", variant.getName(), cartItem.getQuantity() - Math.max(0, availableStock)));
+                }
+
                 if (inventory != null) {
                     inventory.setQuantityOnHand(Math.max(0, inventory.getQuantityOnHand() - cartItem.getQuantity()));
                     movements.add(buildInventoryMovement(variant, "OUT", cartItem.getQuantity(), null,
@@ -551,8 +639,23 @@ public class CheckoutService {
                 order.getItems().add(orderItem);
             }
 
+            if (!outOfStockWarnings.isEmpty()) {
+                String warningText = "[CẢNH BÁO TỒN KHO]: Sản phẩm " + String.join(", ", outOfStockWarnings)
+                        + " đã hết hàng sẵn có trong lúc khách hoàn tất thanh toán VNPay. Đã thu tiền thành công. Cần ưu tiên sản xuất / điều phối kho hoặc liên hệ hoàn tiền.";
+                order.setCustomerNote(order.getCustomerNote() != null && !order.getCustomerNote().isBlank()
+                        ? order.getCustomerNote() + " | " + warningText
+                        : warningText);
+            }
+
             inventoryService.saveAll(lockedInventories.values());
             order = orderService.createOrder(order);
+
+            if (!outOfStockWarnings.isEmpty()) {
+                order.setCustomerNote((order.getCustomerNote() != null ? order.getCustomerNote() + " | " : "")
+                        + "⚠️ CẢNH BÁO TỒN KHO: Sản phẩm " + String.join(", ", outOfStockWarnings)
+                        + " thiếu hàng tại thời điểm thanh toán VNPay thành công. Chuyển diện Hàng đặt trước / Cần xử lý CSKH.");
+                orderRepository.save(order);
+            }
 
             Long createdOrderId = order.getId();
             movements.forEach(m -> m.setReferenceId(createdOrderId));
@@ -574,7 +677,6 @@ public class CheckoutService {
             payment.setProviderReference(transactionId);
             payment = paymentRepository.saveAndFlush(payment);
 
-            recordRiskIfSuspicious(order, pending.riskEvaluation());
 
             cart.setStatus("CONVERTED");
             cartService.save(cart);
@@ -600,6 +702,18 @@ public class CheckoutService {
                     )), pending.clientIp());
             log.info("[VNPAY-SUCCESS] Đã tạo Order & Payment sau khi thanh toán thành công: orderCode={} paymentId={} transactionId={}",
                     order.getOrderCode(), payment.getId(), transactionId);
+            if (notificationService != null) {
+                final Order orderSnapshot = order;
+                final List<OrderItem> itemsSnapshot = List.copyOf(order.getItems());
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        notificationService.sendOrderConfirmationEmail(orderSnapshot, itemsSnapshot, "VNPAY");
+                    } catch (Exception emailEx) {
+                        log.warn("[VNPAY-EMAIL] Không thể gửi email xác nhận đơn hàng #{}: {}", orderSnapshot.getOrderCode(), emailEx.getMessage());
+                    }
+                });
+            }
+
             return new CallbackResult("00", "Confirm Success");
         }
 
@@ -692,16 +806,52 @@ public class CheckoutService {
                     "CONFIRMED",
                     "Payment SUCCESS",
                     null);
+            if (notificationService != null) {
+                final Order orderSnapshot = payment.getOrder();
+                final String methodSnapshot = payment.getPaymentMethod();
+                final String txRef = (providerReference != null && !providerReference.isBlank())
+                        ? providerReference
+                        : payment.getTransactionCode();
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        notificationService.sendPaymentConfirmationEmail(
+                                orderSnapshot,
+                                methodSnapshot,
+                                txRef
+                        );
+                    } catch (Exception emailEx) {
+                        log.warn("[PAYMENT-EMAIL] Không thể gửi email xác nhận thanh toán cho đơn #{}: {}",
+                                orderSnapshot.getOrderCode(), emailEx.getMessage());
+                    }
+                });
+            }
         } else if ("FAILED".equals(paymentStatus) || "CANCELLED".equals(paymentStatus)) {
             payment.getOrder().setPaymentStatus(paymentStatus);
             if ("CANCELLED".equals(paymentStatus)) {
                 orderService.updateStatus(
                         payment.getOrder().getId(),
                         "CANCELLED",
-                        "Payment " + paymentStatus,
+                        "Hủy giao dịch thanh toán " + payment.getPaymentMethod(),
                         null);
             } else {
                 orderRepository.save(payment.getOrder());
+                if ("VNPAY".equalsIgnoreCase(payment.getPaymentMethod()) && notificationService != null) {
+                    final Order orderSnapshot = payment.getOrder();
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            notificationService.sendOrderStatusUpdateEmail(
+                                    orderSnapshot,
+                                    "PENDING",
+                                    "CANCELLED",
+                                    "Giao dịch thanh toán qua cổng VNPay không thành công hoặc đã bị hủy",
+                                    "VNPAY"
+                            );
+                        } catch (Exception emailEx) {
+                            log.warn("[VNPAY-CANCEL-EMAIL] Không thể gửi email hủy đơn VNPay #{}: {}",
+                                    orderSnapshot.getOrderCode(), emailEx.getMessage());
+                        }
+                    });
+                }
             }
             releaseReservedInventory(payment.getOrder());
         }
@@ -879,29 +1029,7 @@ public class CheckoutService {
         return new RiskEvaluation(riskScore, level, reasons.toString());
     }
 
-    private void recordRiskIfSuspicious(Order order, RiskEvaluation eval) {
-        if (eval.riskScore() >= 30 && orderRiskService != null) {
-            try {
-                OrderRiskAssessment assessment = new OrderRiskAssessment();
-                assessment.setOrder(order);
-                assessment.setRiskScore(eval.riskScore());
-                assessment.setRiskLevel(eval.riskLevel());
-                assessment.setAssessmentReason("{\"details\": \"" + eval.reason().replace("\"", "'") + "\"}");
-                OrderRiskAssessment savedAssessment = orderRiskService.saveAssessment(assessment);
 
-                OrderAlert alert = new OrderAlert();
-                alert.setOrder(order);
-                alert.setAssessment(savedAssessment);
-                alert.setAlertType("SUSPICIOUS_ORDER");
-                alert.setSeverity(eval.riskLevel());
-                alert.setDescription("Đơn hàng có điểm rủi ro " + eval.riskScore() + "đ. Lý do: " + eval.reason());
-                alert.setStatus("NEW");
-                orderRiskService.saveAlert(alert);
-            } catch (Exception ex) {
-                log.warn("[RISK] Không thể lưu đánh giá rủi ro cho đơn {}: {}", order.getOrderCode(), ex.getMessage());
-            }
-        }
-    }
 
     private boolean isSameLocation(String addr1, String addr2) {
         if (addr1 == null || addr2 == null) return false;
@@ -917,10 +1045,33 @@ public class CheckoutService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> previewCoupon(String rawCouponCode, BigDecimal subtotal, BigDecimal shippingFee, String username) {
+        return previewCoupon(rawCouponCode, subtotal, shippingFee, username, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> previewCoupon(
+            String rawCouponCode,
+            BigDecimal subtotal,
+            BigDecimal shippingFee,
+            String username,
+            String phone
+    ) {
         User user = username == null ? null : userService.findByUsername(username).orElse(null);
         BigDecimal safeSubtotal = subtotal != null && subtotal.compareTo(ZERO) > 0 ? subtotal : ZERO;
         BigDecimal safeShipping = shippingFee != null && shippingFee.compareTo(ZERO) >= 0 ? shippingFee : ZERO;
-        CouponEvaluation eval = evaluateCoupon(rawCouponCode, safeSubtotal, safeShipping, user != null ? user.getId() : null);
+
+        List<CartItem> cartItems = null;
+        if (user != null) {
+            try {
+                Optional<Cart> cartOpt = cartService.getActiveCartByUser(user.getId());
+                if (cartOpt.isPresent()) {
+                    cartItems = cartService.getItems(cartOpt.get().getId());
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        CouponEvaluation eval = evaluateCoupon(rawCouponCode, safeSubtotal, safeShipping, user != null ? user.getId() : null, phone, cartItems);
         if (eval.couponCode() == null) {
             throw new ApiException(ApiErrorCode.ORDER_COUPON_INVALID, "Vui lòng nhập mã giảm giá.");
         }
@@ -936,7 +1087,9 @@ public class CheckoutService {
             String rawCouponCode,
             BigDecimal subtotal,
             BigDecimal shippingFee,
-            Long userId
+            Long userId,
+            String phone,
+            List<CartItem> items
     ) {
         if (rawCouponCode == null || rawCouponCode.isBlank()) {
             return new CouponEvaluation(null, ZERO, null);
@@ -947,15 +1100,18 @@ public class CheckoutService {
         if (couponService != null) {
             Optional<Coupon> dbCouponOpt = couponService.findByCode(code);
             if (dbCouponOpt.isPresent()) {
-                Coupon validCoupon = couponService.validateCoupon(code, subtotal, userId)
-                        .orElseThrow(() -> new ApiException(
-                                ApiErrorCode.ORDER_COUPON_INVALID,
-                                "Mã giảm giá '" + code + "' không hợp lệ, chưa đủ giá trị đơn tối thiểu hoặc đã hết lượt sử dụng."));
+                CouponValidationResult validationRes = couponService.validateCouponDetailed(code, subtotal, userId, phone);
+                if (!validationRes.valid()) {
+                    throw new ApiException(ApiErrorCode.ORDER_COUPON_INVALID, validationRes.message());
+                }
+
+                Coupon validCoupon = validationRes.coupon();
+                BigDecimal applicableBase = computeApplicableSubtotal(validCoupon, subtotal, items);
 
                 BigDecimal discount;
                 String type = validCoupon.getDiscountType() != null ? validCoupon.getDiscountType().toUpperCase(Locale.ROOT) : "";
                 if ("PERCENT".equals(type) || "PERCENTAGE".equals(type)) {
-                    discount = subtotal.multiply(validCoupon.getDiscountValue())
+                    discount = applicableBase.multiply(validCoupon.getDiscountValue())
                             .divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.HALF_UP);
                     if (validCoupon.getMaxDiscountAmount() != null
                             && discount.compareTo(validCoupon.getMaxDiscountAmount()) > 0) {
@@ -964,7 +1120,7 @@ public class CheckoutService {
                 } else if ("FREESHIP".equals(type)) {
                     discount = shippingFee.compareTo(ZERO) > 0 ? shippingFee : validCoupon.getDiscountValue();
                 } else {
-                    discount = validCoupon.getDiscountValue();
+                    discount = validCoupon.getDiscountValue().min(applicableBase);
                 }
                 BigDecimal maxApplicable = subtotal.add(shippingFee);
                 return new CouponEvaluation(code, discount.min(maxApplicable).max(ZERO), validCoupon);
@@ -991,6 +1147,100 @@ public class CheckoutService {
                     ApiErrorCode.ORDER_COUPON_INVALID,
                     "Mã giảm giá '" + code + "' không hợp lệ hoặc đã hết hạn.");
         };
+    }
+
+    private BigDecimal computeApplicableSubtotal(Coupon coupon, BigDecimal defaultSubtotal, List<CartItem> items) {
+        if (items == null || items.isEmpty()) {
+            return defaultSubtotal;
+        }
+        String scope = coupon.getScopeType() != null ? coupon.getScopeType().toUpperCase(Locale.ROOT) : "ALL";
+        if ("ALL".equals(scope)) {
+            return defaultSubtotal;
+        }
+
+        BigDecimal matchingSubtotal = ZERO;
+
+        if ("PRODUCT".equals(scope)) {
+            Set<Long> productIds = parseIds(coupon.getApplicableProductIds());
+            for (CartItem item : items) {
+                if (item.getVariant() != null && item.getVariant().getProduct() != null) {
+                    Long pId = item.getVariant().getProduct().getId();
+                    if (productIds.contains(pId)) {
+                        BigDecimal linePrice = item.getVariant().getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                        matchingSubtotal = matchingSubtotal.add(linePrice);
+                    }
+                }
+            }
+            if (matchingSubtotal.compareTo(ZERO) <= 0) {
+                throw new ApiException(ApiErrorCode.ORDER_COUPON_INVALID,
+                        "Mã giảm giá '" + coupon.getCode() + "' chỉ áp dụng cho một số sản phẩm chỉ định.");
+            }
+            return matchingSubtotal;
+        }
+
+        if ("COLLECTION".equals(scope)) {
+            Set<String> targetSlugs = parseSlugs(coupon.getApplicableCollections());
+            for (CartItem item : items) {
+                if (item.getVariant() != null && item.getVariant().getProduct() != null) {
+                    Long pId = item.getVariant().getProduct().getId();
+                    List<String> pCollections = collectionRepository != null ? collectionRepository.findCollectionSlugsByProductId(pId) : List.of();
+                    boolean matches = pCollections.stream().anyMatch(s -> targetSlugs.contains(s.toLowerCase(Locale.ROOT)));
+                    if (matches) {
+                        BigDecimal linePrice = item.getVariant().getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                        matchingSubtotal = matchingSubtotal.add(linePrice);
+                    }
+                }
+            }
+            if (matchingSubtotal.compareTo(ZERO) <= 0) {
+                throw new ApiException(ApiErrorCode.ORDER_COUPON_INVALID,
+                        "Mã giảm giá '" + coupon.getCode() + "' chỉ áp dụng cho các sản phẩm thuộc bộ sưu tập được khuyến mãi.");
+            }
+            return matchingSubtotal;
+        }
+
+        if ("CATEGORY".equals(scope)) {
+            Set<String> targetCats = parseSlugs(coupon.getApplicableCategories());
+            for (CartItem item : items) {
+                if (item.getVariant() != null && item.getVariant().getProduct() != null) {
+                    Set<Category> cats = item.getVariant().getProduct().getCategories();
+                    boolean matches = cats != null && cats.stream().anyMatch(c -> targetCats.contains(c.getSlug().toLowerCase(Locale.ROOT)));
+                    if (matches) {
+                        BigDecimal linePrice = item.getVariant().getPrice().multiply(BigDecimal.valueOf(item.getQuantity()));
+                        matchingSubtotal = matchingSubtotal.add(linePrice);
+                    }
+                }
+            }
+            if (matchingSubtotal.compareTo(ZERO) <= 0) {
+                throw new ApiException(ApiErrorCode.ORDER_COUPON_INVALID,
+                        "Mã giảm giá '" + coupon.getCode() + "' chỉ áp dụng cho các danh mục sản phẩm được khuyến mãi.");
+            }
+            return matchingSubtotal;
+        }
+
+        return defaultSubtotal;
+    }
+
+    private Set<Long> parseIds(String raw) {
+        if (raw == null || raw.isBlank()) return Set.of();
+        return Arrays.stream(raw.split("[,;\\s]+"))
+                .filter(s -> !s.isBlank())
+                .map(s -> {
+                    try {
+                        return Long.parseLong(s.trim());
+                    } catch (Exception e) {
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    private Set<String> parseSlugs(String raw) {
+        if (raw == null || raw.isBlank()) return Set.of();
+        return Arrays.stream(raw.split("[,;\\s]+"))
+                .filter(s -> !s.isBlank())
+                .map(s -> s.trim().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
     }
 
     public record CouponEvaluation(

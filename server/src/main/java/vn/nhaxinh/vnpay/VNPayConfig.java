@@ -24,9 +24,18 @@ public class VNPayConfig {
     /*
      * 
      * Returnurl
-     * example : http://localhost:8080/payment
+     * KHÔNG dùng cứng localhost: URL trả về được dựng động theo đúng địa chỉ (IP/host:port)
+     * mà trình duyệt của khách đang truy cập client (VD: http://192.168.1.10:5173),
+     * đi qua Vite proxy /api về backend để xác thực chữ ký rồi mới chuyển sang /payment/result.
+     * Đường dẫn callback (tương đối với origin của client):
      */
-    public static String vnp_Returnurl = "http://localhost:5173/vnpay-callback";
+    public static final String VNP_RETURN_PATH = "/api/v1/payments/vnpay/return";
+
+    /*
+     * Fallback khi không xác định được origin của client (VD: gọi từ Postman / job nền).
+     * Có thể cấu hình bằng biến môi trường VNPAY_CLIENT_ORIGIN (VD: http://192.168.1.10:5173).
+     */
+    public static String vnp_Returnurl = defaultClientOrigin() + VNP_RETURN_PATH;
     public static String vnp_TmnCode = "PTA3FMH7";
     public static String vnp_HashSecret = "NATJZPIHQJEYOVLFFVBANQMSEBPNFEBW";
     public static String vnp_apiUrl = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
@@ -128,6 +137,88 @@ public class VNPayConfig {
             ipAdress = "Invalid IP:" + e.getMessage();
         }
         return ipAdress;
+    }
+
+    // ========================================================================
+    // Xác định origin (scheme://ip:port) của client đang dùng trình duyệt
+    // ========================================================================
+
+    private static String defaultClientOrigin() {
+        String env = System.getenv("VNPAY_CLIENT_ORIGIN");
+        String sanitized = sanitizeOrigin(env);
+        return sanitized != null ? sanitized : "http://localhost:5173";
+    }
+
+    /**
+     * Origin của client khi khách bấm thanh toán (request fetch từ trình duyệt).
+     * Ưu tiên: header Origin -> X-Forwarded-Host (Vite proxy xfwd) -> Referer.
+     */
+    public static String resolveClientOrigin(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String origin = sanitizeOrigin(request.getHeader("Origin"));
+        if (origin != null) {
+            return origin;
+        }
+        String forwarded = resolveForwardedOrigin(request);
+        if (forwarded != null) {
+            return forwarded;
+        }
+        return sanitizeOrigin(request.getHeader("Referer"));
+    }
+
+    /**
+     * Origin của client dựa trên header X-Forwarded-Host / X-Forwarded-Proto do Vite proxy gắn vào.
+     * Dùng cho request VNPay redirect về (không có header Origin, Referer là vnpayment.vn).
+     */
+    public static String resolveForwardedOrigin(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String host = firstHeaderValue(request.getHeader("X-Forwarded-Host"));
+        if (host == null) {
+            return null;
+        }
+        String proto = firstHeaderValue(request.getHeader("X-Forwarded-Proto"));
+        if (proto == null) {
+            proto = "http";
+        }
+        return sanitizeOrigin(proto + "://" + host);
+    }
+
+    /** URL trả về VNPay theo đúng IP/host client, fallback về vnp_Returnurl. */
+    public static String buildReturnUrl(HttpServletRequest request) {
+        String origin = resolveClientOrigin(request);
+        return origin != null ? origin + VNP_RETURN_PATH : vnp_Returnurl;
+    }
+
+    private static String firstHeaderValue(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String first = value.split(",")[0].trim();
+        return first.isEmpty() ? null : first;
+    }
+
+    /** Chỉ chấp nhận http/https và trả về dạng scheme://host[:port] (bỏ path/query). */
+    public static String sanitizeOrigin(String raw) {
+        if (raw == null || raw.isBlank() || "null".equalsIgnoreCase(raw.trim())) {
+            return null;
+        }
+        try {
+            java.net.URI uri = java.net.URI.create(raw.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null
+                    || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+                return null;
+            }
+            String hostPart = host.contains(":") && !host.startsWith("[") ? "[" + host + "]" : host;
+            return scheme.toLowerCase() + "://" + hostPart + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     public static String getRandomNumber(int len) {

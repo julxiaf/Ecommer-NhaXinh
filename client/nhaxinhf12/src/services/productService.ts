@@ -7,101 +7,153 @@ import type {
 } from "../types/catalog";
 import { ENDPOINTS, buildUrlWithQuery } from "./apiEndpoints";
 
-// Bộ ảnh chất lượng cao dự phòng hiển thị UI khi sản phẩm chưa được gán media
-const CATEGORY_FALLBACK_IMAGES: Record<string, { img1: string; img2?: string }> = {
-  sofa: {
-    img1: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-    img2: "https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80",
-  },
-  "bàn ăn": {
-    img1: "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-    img2: "https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80",
-  },
-  "bàn trà": {
-    img1: "https://images.unsplash.com/photo-1532372576444-dda954194ad0?auto=format&fit=crop&w=800&q=80",
-  },
-  "bàn làm việc": {
-    img1: "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-  },
-  bàn: {
-    img1: "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-  },
-  ghế: {
-    img1: "https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80",
-    img2: "https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=800&q=80",
-  },
-  "ghế ăn": {
-    img1: "https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=800&q=80",
-  },
-  "giường ngủ": {
-    img1: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
-    img2: "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=800&q=80",
-  },
-  "tủ quần áo": {
-    img1: "https://images.unsplash.com/photo-1558997519-83ea9252edf8?auto=format&fit=crop&w=800&q=80",
-  },
-  "kệ tivi": {
-    img1: "https://images.unsplash.com/photo-1600210491892-03d54c0aaf87?auto=format&fit=crop&w=800&q=80",
-  },
-  "tủ & kệ": {
-    img1: "https://images.unsplash.com/photo-1600210491892-03d54c0aaf87?auto=format&fit=crop&w=800&q=80",
-  },
-  "phòng ăn": {
-    img1: "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-  },
-  "phòng làm việc": {
-    img1: "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-  },
-};
+// ══════════════════════════════════════════════════════════
+// 1. SHARED CATALOG CONSTANTS & HELPERS
+// ══════════════════════════════════════════════════════════
 
-function resolveProductImage(url?: string | null, name = "", category = ""): { img1: string; img2?: string } {
-  const normCat = category.toLowerCase().trim();
-  const normName = name.toLowerCase().trim();
+export const DEFAULT_PLACEHOLDER_IMAGE =
+  "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
 
-  let fallback = CATEGORY_FALLBACK_IMAGES[normCat];
-  if (!fallback) {
-    for (const [key, val] of Object.entries(CATEGORY_FALLBACK_IMAGES)) {
-      if (normCat.includes(key) || normName.includes(key)) {
-        fallback = val;
-        break;
+const COLLECTION_SLUGS = new Set([
+  "bo-suu-tap",
+  "orientale",
+  "victoria",
+  "duong-dai",
+  "osaka",
+  "coastal",
+  "may",
+]);
+
+/**
+ * Kiểm tra xem một danh mục có thuộc nhóm Bộ sưu tập (Collection) hay không.
+ * Dùng chung cho cả Client (`productService`) và Admin (`catalogApi`, `adminService`).
+ */
+export function isCollectionCategory(
+  cat?: {
+    slug?: string | null;
+    name?: string | null;
+    categoryGroup?: string | null;
+    parentId?: string | number | null;
+    isCollection?: boolean;
+  } | null,
+): boolean {
+  if (!cat) return false;
+  if (cat.isCollection || cat.categoryGroup === "COLLECTION") return true;
+
+  const parentIdStr = cat.parentId != null ? String(cat.parentId) : "";
+  if (parentIdStr === "15" || parentIdStr === "cat-collections") return true;
+
+  const slug = (cat.slug || "").toLowerCase().trim();
+  const name = (cat.name || "").toLowerCase().trim();
+
+  return (
+    COLLECTION_SLUGS.has(slug) ||
+    slug.startsWith("bst-") ||
+    slug.includes("bo-suu-tap") ||
+    name.includes("bộ sưu tập")
+  );
+}
+
+/**
+ * Chuẩn hóa đường dẫn ảnh sản phẩm (trả về `{ img1, img2 }` tương thích với toàn bộ UI Client & Admin).
+ */
+export function resolveProductImage(
+  url?: string | null,
+  _name = "",
+  _category = "",
+): { img1: string; img2?: string } {
+  const trimmed = url?.trim();
+  if (!trimmed) {
+    return { img1: DEFAULT_PLACEHOLDER_IMAGE };
+  }
+  return { img1: trimmed };
+}
+
+function computeDiscount(price: number, originalPrice?: number): number | undefined {
+  if (originalPrice && originalPrice > price && originalPrice > 0) {
+    return Math.round(((originalPrice - price) / originalPrice) * 100);
+  }
+  return undefined;
+}
+
+// ══════════════════════════════════════════════════════════
+// 2. INTERNAL HTTP HELPER (Hỗ trợ tự động retry khi 502/503/504)
+// ══════════════════════════════════════════════════════════
+
+const TRANSIENT_GATEWAY_STATUSES = new Set([502, 503, 504]);
+
+async function fetchJson<T>(
+  url: string,
+  options: RequestInit = {},
+  retries = 1,
+): Promise<T | null> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers as Record<string, string>),
+        },
+      });
+
+      if (TRANSIENT_GATEWAY_STATUSES.has(response.status) && attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        continue;
       }
+
+      if (!response.ok) {
+        return null;
+      }
+
+      return (await response.json()) as T;
+    } catch (err) {
+      if (options.signal?.aborted) {
+        return null;
+      }
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+        continue;
+      }
+      console.warn(`[productService] Fetch error on ${url}:`, err);
+      return null;
     }
   }
-  if (!fallback) {
-    fallback = {
-      img1: "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-    };
-  }
-
-  if (!url || url.trim() === "") {
-    return fallback;
-  }
-
-  return {
-    img1: url,
-    img2: fallback.img2,
-  };
+  return null;
 }
+
+function extractSummaryContent(
+  data: BackendProductSummary[] | { content?: BackendProductSummary[] } | null,
+): BackendProductSummary[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.content)) return data.content;
+  return [];
+}
+
+// ══════════════════════════════════════════════════════════
+// 3. BACKEND DTO -> FRONTEND MODEL MAPPERS
+// ══════════════════════════════════════════════════════════
 
 function mapSummaryToProduct(summary: BackendProductSummary): Product {
   const price = summary.minPrice ? Number(summary.minPrice) : Number(summary.price || 0);
   const originalPrice = summary.compareAtPrice
     ? Number(summary.compareAtPrice)
     : summary.originalPrice
-    ? Number(summary.originalPrice)
-    : undefined;
+      ? Number(summary.originalPrice)
+      : undefined;
 
-  const discount =
-    summary.discount ??
-    (originalPrice && originalPrice > price
-      ? Math.round(((originalPrice - price) / originalPrice) * 100)
-      : undefined);
-
+  const discount = summary.discount ?? computeDiscount(price, originalPrice);
   const images = resolveProductImage(
     summary.image || summary.thumbnailUrl,
     summary.name,
-    summary.category || ""
+    summary.category || "",
   );
+  const totalStock =
+    summary.totalStock !== undefined && summary.totalStock !== null
+      ? Number(summary.totalStock)
+      : 0;
+  const isPreorder = Boolean(summary.isPreorder) || summary.stockStatus === "PRE_ORDER";
 
   return {
     id: summary.id,
@@ -117,19 +169,24 @@ function mapSummaryToProduct(summary: BackendProductSummary): Product {
     isNew: discount === undefined || discount === 0,
     rating: 4.8,
     shortDescription: summary.shortDescription || undefined,
-    totalStock: summary.totalStock !== undefined && summary.totalStock !== null ? Number(summary.totalStock) : 0,
-    inStock: summary.inStock ?? (summary.totalStock !== undefined ? Number(summary.totalStock) > 0 : false),
-    isPreorder: Boolean(summary.isPreorder) || summary.stockStatus === "PRE_ORDER",
-    stockStatus: summary.stockStatus || (summary.isPreorder ? "PRE_ORDER" : ((summary.totalStock ?? 0) > 0 ? "IN_STOCK" : "OUT_OF_STOCK")),
+    totalStock,
+    inStock: summary.inStock ?? totalStock > 0,
+    isPreorder,
+    stockStatus:
+      summary.stockStatus ||
+      (isPreorder ? "PRE_ORDER" : totalStock > 0 ? "IN_STOCK" : "OUT_OF_STOCK"),
     variantId: summary.defaultVariantId ? Number(summary.defaultVariantId) : undefined,
   };
 }
 
 function mapDetailToProduct(detail: BackendProductDetail): Product {
   const primaryMedia = detail.media?.find((m) => m.isPrimary) || detail.media?.[0];
-  const secondaryMedia = detail.media?.[1];
+  const secondaryMedia =
+    detail.media?.find((m) => !m.isPrimary && (m.mediaType === "IMAGE" || !m.mediaType)) ||
+    detail.media?.[1];
+
   let minPrice = 0;
-  let maxComparePrice: number | undefined = undefined;
+  let maxComparePrice: number | undefined;
 
   if (detail.variants && detail.variants.length > 0) {
     minPrice = Math.min(...detail.variants.map((v) => Number(v.price || 0)));
@@ -137,34 +194,35 @@ function mapDetailToProduct(detail: BackendProductDetail): Product {
     if (comp) maxComparePrice = Number(comp);
   }
 
-  const categoryName = detail.categories?.[0]?.name || "Nội thất";
+  const realCategory =
+    detail.categories?.find((c) => !isCollectionCategory(c)) || detail.categories?.[0];
+  const categoryName = realCategory?.name || "Nội thất";
+  const categorySlug = realCategory?.slug;
+
   const images = resolveProductImage(primaryMedia?.mediaUrl, detail.name, categoryName);
+  const discount = computeDiscount(minPrice, maxComparePrice);
 
-  const discount = maxComparePrice && maxComparePrice > minPrice
-    ? Math.round(((maxComparePrice - minPrice) / maxComparePrice) * 100)
-    : undefined;
-
-  const mappedVariants = detail.variants?.map((v, idx) => {
+  const mappedVariants = detail.variants?.map((v) => {
     const matchedMedia = detail.media?.find(
-      (m) => m.variantId === v.id && (m.mediaType === "IMAGE" || !m.mediaType)
+      (m) => m.variantId === v.id && (m.mediaType === "IMAGE" || !m.mediaType),
     );
-    let variantImg = matchedMedia ? productService.getMediaImageUrl(matchedMedia) : v.image;
-
-    if (!variantImg) {
-      if (v.name?.includes("1m6") || idx === 0) {
-        variantImg = "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80";
-      } else if (v.name?.includes("1m8") || idx === 1) {
-        variantImg = "https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80";
-      } else if (v.name?.includes("2m") || idx === 2) {
-        variantImg = "https://images.unsplash.com/photo-1530018607912-eff2daa1bac4?auto=format&fit=crop&w=800&q=80";
-      }
-    }
+    const variantImg = matchedMedia
+      ? productService.getMediaImageUrl(matchedMedia)
+      : v.image || images.img1;
 
     return {
       ...v,
       image: variantImg,
     };
   });
+
+  const hasVariantPreorder = detail.variants?.some(
+    (v) => Boolean(v.stock?.isPreorder) || v.stock?.stockStatus === "PRE_ORDER",
+  );
+  const isPreorder =
+    Boolean(detail.isPreorder) ||
+    detail.stockStatus === "PRE_ORDER" ||
+    Boolean(hasVariantPreorder);
 
   return {
     id: detail.id,
@@ -176,7 +234,8 @@ function mapDetailToProduct(detail: BackendProductDetail): Product {
     image: images.img1,
     image2: secondaryMedia?.mediaUrl || images.img2,
     category: categoryName,
-    categoryId: detail.categories?.[0]?.id,
+    categorySlug,
+    categoryId: realCategory?.id,
     brand: detail.brand?.name || "Nhà Xinh",
     shortDescription: detail.shortDescription || undefined,
     description: detail.description || undefined,
@@ -184,114 +243,90 @@ function mapDetailToProduct(detail: BackendProductDetail): Product {
     isNew: discount === undefined || discount === 0,
     rating: 4.9,
     inStock: detail.status === "ACTIVE",
-    totalStock: detail.variants?.reduce((s, v) => s + (v.stock?.availableQuantity || 0), 0) ?? 0,
-    isPreorder: detail.variants?.some((v) => Boolean(v.stock?.isPreorder) || v.stock?.stockStatus === "PRE_ORDER"),
-    stockStatus: detail.variants?.some((v) => Boolean(v.stock?.isPreorder) || v.stock?.stockStatus === "PRE_ORDER") ? "PRE_ORDER" : "IN_STOCK",
+    totalStock:
+      detail.variants?.reduce((s, v) => s + (v.stock?.availableQuantity || 0), 0) ?? 0,
+    isPreorder,
+    stockStatus: detail.stockStatus || (isPreorder ? "PRE_ORDER" : "IN_STOCK"),
     variantId: mappedVariants?.[0]?.id,
     variants: mappedVariants,
     media: detail.media,
   };
 }
 
+// ══════════════════════════════════════════════════════════
+// 4. PUBLIC PRODUCT SERVICE
+// ══════════════════════════════════════════════════════════
+
 export const productService = {
   /**
-   * Lấy danh sách gợi ý tìm kiếm nhanh cho Header / Search bar thuần API
+   * Lấy danh sách gợi ý tìm kiếm nhanh cho Header / Search bar
    */
-  async getSearchSuggestions(query: string, signal?: AbortSignal): Promise<Array<{
-    id: number;
-    name: string;
-    slug: string;
-    price: number;
-    image?: string;
-    category?: string;
-  }>> {
+  async getSearchSuggestions(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<
+    Array<{
+      id: number;
+      name: string;
+      slug: string;
+      price: number;
+      image?: string;
+      category?: string;
+    }>
+  > {
     const term = query.trim().toLowerCase();
     if (term.length < 2) return [];
 
-    try {
-      const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.SEARCH, { keyword: term, size: 6 });
-      const res = await fetch(url, {
-        signal,
-        headers: { "Content-Type": "application/json" },
-      });
+    const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.SEARCH, { keyword: term, size: 6 });
+    const data = await fetchJson<
+      BackendProductSummary[] | { content?: BackendProductSummary[] }
+    >(url, { signal }, 0);
 
-      if (!res.ok) return [];
-
-      const data = await res.json();
-      const content: BackendProductSummary[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data.content)
-        ? data.content
-        : [];
-
-      return content.map((item) => {
-        const p = mapSummaryToProduct(item);
-        return {
-          id: p.id,
-          name: p.name,
-          slug: p.slug,
-          price: p.price,
-          image: p.image,
-          category: p.category,
-        };
-      });
-    } catch {
-      return [];
-    }
+    return extractSummaryContent(data).map((item) => {
+      const p = mapSummaryToProduct(item);
+      return {
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        price: p.price,
+        image: p.image,
+        category: p.category,
+      };
+    });
   },
 
   /**
-   * Lấy danh sách sản phẩm thuần API từ database backend (hỗ trợ phân trang, lọc, sắp xếp)
+   * Lấy danh sách sản phẩm từ API backend (hỗ trợ phân trang, lọc, sắp xếp)
    */
   async getProducts(params?: ProductQueryParams): Promise<Product[]> {
-    try {
-      let baseUrl: string = ENDPOINTS.PRODUCTS.BASE;
-      const queryParams: Record<string, any> = {};
+    let baseUrl: string = ENDPOINTS.PRODUCTS.BASE;
+    const queryParams: Record<string, unknown> = {
+      page: params?.page,
+      size: params?.size,
+      sort: params?.sort,
+      dir: params?.dir,
+    };
 
-      if (params?.page !== undefined) queryParams.page = params.page;
-      if (params?.size !== undefined) queryParams.size = params.size;
-      if (params?.sort) queryParams.sort = params.sort;
-      if (params?.dir) queryParams.dir = params.dir;
-
-      if (params?.keyword) {
-        baseUrl = ENDPOINTS.PRODUCTS.SEARCH;
-        queryParams.keyword = params.keyword;
-      } else if (params?.categoryId) {
-        baseUrl = ENDPOINTS.PRODUCTS.BY_CATEGORY(params.categoryId);
-      }
-
-      const finalUrl = buildUrlWithQuery(baseUrl, queryParams);
-      const response = await fetch(finalUrl, {
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (!response.ok) {
-        console.warn(`[productService] API ${finalUrl} returned status ${response.status}.`);
-        return [];
-      }
-
-      const data = await response.json();
-      const content: BackendProductSummary[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data.content)
-        ? data.content
-        : [];
-
-      let products = content.map(mapSummaryToProduct);
-
-      // Nếu client lọc theo tên category
-      if (params?.category) {
-        const catLower = params.category.toLowerCase();
-        products = products.filter(
-          (p) => p.category.toLowerCase().includes(catLower)
-        );
-      }
-
-      return products;
-    } catch (err) {
-      console.warn("[productService] Error fetching products from API:", err);
-      return [];
+    if (params?.keyword) {
+      baseUrl = ENDPOINTS.PRODUCTS.SEARCH;
+      queryParams.keyword = params.keyword;
+    } else if (params?.categoryId) {
+      baseUrl = ENDPOINTS.PRODUCTS.BY_CATEGORY(params.categoryId);
     }
+
+    const finalUrl = buildUrlWithQuery(baseUrl, queryParams);
+    const data = await fetchJson<
+      BackendProductSummary[] | { content?: BackendProductSummary[] }
+    >(finalUrl);
+
+    let products = extractSummaryContent(data).map(mapSummaryToProduct);
+
+    if (params?.category) {
+      const catLower = params.category.toLowerCase();
+      products = products.filter((p) => p.category.toLowerCase().includes(catLower));
+    }
+
+    return products;
   },
 
   /**
@@ -305,58 +340,26 @@ export const productService = {
    * Lấy chi tiết sản phẩm theo slug
    */
   async getProductBySlug(slug: string): Promise<Product | null> {
-    try {
-      const response = await fetch(ENDPOINTS.PRODUCTS.BY_SLUG(slug), {
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (response.ok) {
-        const detail: BackendProductDetail = await response.json();
-        return mapDetailToProduct(detail);
-      }
-    } catch {
-      // Bỏ qua lỗi kết nối
+    const detail = await fetchJson<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_SLUG(slug));
+    if (detail) {
+      return mapDetailToProduct(detail);
     }
 
-    // Nếu không lấy được qua slug detail, thử tìm trong danh sách products từ API
-    try {
-      const allProducts = await this.getProducts({ size: 100 });
-      const found = allProducts.find((p) => p.slug === slug);
-      if (found) return found;
-    } catch {
-      // Bỏ qua
-    }
-
-    return null;
+    const allProducts = await this.getProducts({ size: 100 });
+    return allProducts.find((p) => p.slug === slug) ?? null;
   },
 
   /**
    * Lấy chi tiết sản phẩm theo ID
    */
   async getDetailProduct(id: number): Promise<Product | null> {
-    try {
-      const response = await fetch(ENDPOINTS.PRODUCTS.BY_ID(id), {
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (response.ok) {
-        const detail: BackendProductDetail = await response.json();
-        return mapDetailToProduct(detail);
-      }
-    } catch {
-      // Bỏ qua lỗi kết nối
+    const detail = await fetchJson<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_ID(id));
+    if (detail) {
+      return mapDetailToProduct(detail);
     }
 
-    // Fallback thử tìm trong danh sách products từ API
-    try {
-      const allProducts = await this.getProducts({ size: 100 });
-      const found = allProducts.find((p) => p.id === id);
-      if (found) return found;
-    } catch {
-      // Bỏ qua
-    }
-
-    return null;
+    const allProducts = await this.getProducts({ size: 100 });
+    return allProducts.find((p) => p.id === id) ?? null;
   },
 
   /**
@@ -374,19 +377,22 @@ export const productService = {
   },
 
   /**
-   * Helper: Lấy URL hiển thị ảnh từ đối tượng ProductMediaItem
-   * - Nếu là link ngoài (http/https): Trả về link trực tiếp.
-   * - Nếu là ảnh do server quản lý qua media id: Gọi API qua ENDPOINTS
+   * Lấy URL hiển thị ảnh từ đối tượng ProductMediaItem
    */
   getMediaImageUrl(media?: { id?: number; mediaUrl?: string | null } | null): string {
-    if (!media) return "";
-    if (media.mediaUrl && (media.mediaUrl.startsWith("http://") || media.mediaUrl.startsWith("https://"))) {
+    if (!media) return DEFAULT_PLACEHOLDER_IMAGE;
+    if (
+      media.mediaUrl &&
+      (media.mediaUrl.startsWith("http://") ||
+        media.mediaUrl.startsWith("https://") ||
+        media.mediaUrl.startsWith("/"))
+    ) {
       return media.mediaUrl;
     }
     if (media.id) {
       return ENDPOINTS.PRODUCTS.MEDIA_IMAGE(media.id);
     }
-    return media.mediaUrl || "";
+    return media.mediaUrl || DEFAULT_PLACEHOLDER_IMAGE;
   },
 
   /**
@@ -394,57 +400,35 @@ export const productService = {
    */
   async getProductMedia(
     productIdOrSlug: number | string,
-    type?: "IMAGE" | "VIDEO" | "MODEL_3D" | string
+    type?: "IMAGE" | "VIDEO" | "MODEL_3D" | string,
   ): Promise<ProductMediaItem[]> {
-    try {
-      const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.MEDIA(productIdOrSlug), type ? { type } : undefined);
-      const res = await fetch(url);
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Bỏ qua lỗi
-    }
-    return [];
+    const url = buildUrlWithQuery(
+      ENDPOINTS.PRODUCTS.MEDIA(productIdOrSlug),
+      type ? { type } : undefined,
+    );
+    const data = await fetchJson<ProductMediaItem[]>(url);
+    return Array.isArray(data) ? data : [];
   },
 
   /**
-   * API chuyên biệt lấy toàn bộ ảnh (IMAGE) của sản phẩm theo id hoặc slug
+   * Lấy toàn bộ ảnh (IMAGE) của sản phẩm theo id hoặc slug
    */
   async getProductImages(productIdOrSlug: number | string): Promise<ProductMediaItem[]> {
-    try {
-      const url = ENDPOINTS.PRODUCTS.IMAGES(productIdOrSlug);
-      const res = await fetch(url);
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Bỏ qua lỗi
-    }
-    return [];
+    const data = await fetchJson<ProductMediaItem[]>(ENDPOINTS.PRODUCTS.IMAGES(productIdOrSlug));
+    return Array.isArray(data) ? data : [];
   },
 
   /**
-   * Danh sách sản phẩm nổi bật thuần API
+   * Danh sách sản phẩm nổi bật
    */
   async getFeaturedProducts(limit = 8): Promise<Product[]> {
-    try {
-      const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.FEATURED, { limit });
-      const res = await fetch(url);
-      if (res.ok) {
-        const list: BackendProductSummary[] = await res.json();
-        return list.map(mapSummaryToProduct);
-      }
-    } catch {
-      // Bỏ qua lỗi
+    const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.FEATURED, { limit });
+    const list = await fetchJson<BackendProductSummary[]>(url);
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map(mapSummaryToProduct);
     }
 
-    // Nếu endpoint featured chưa có dữ liệu, lấy top sản phẩm mới nhất từ API products
-    try {
-      const prods = await this.getProducts({ size: limit });
-      return prods.slice(0, limit);
-    } catch {
-      return [];
-    }
+    const prods = await this.getProducts({ size: limit });
+    return prods.slice(0, limit);
   },
 };

@@ -296,7 +296,7 @@ private static final org.slf4j.Logger logger = LoggerFactory.getLogger(VNPayServ
             vnp_Params.put("vnp_Locale", "vn");
         }
 
-        vnp_Params.put("vnp_ReturnUrl", VNPayConfig.vnp_Returnurl);
+        vnp_Params.put("vnp_ReturnUrl", VNPayConfig.buildReturnUrl(req));
         vnp_Params.put("vnp_IpAddr", vnp_IpAddr);
 
         Calendar cld = Calendar.getInstance(TimeZone.getTimeZone("Etc/GMT+7"));

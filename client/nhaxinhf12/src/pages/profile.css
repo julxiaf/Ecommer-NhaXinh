@@ -1,15 +1,25 @@
 /* ═══════════════════════════════════════════════
-   PREMIUM PROFILE & ACCOUNT / ME PAGE - NHA XINH
+   PREMIUM PROFILE & ACCOUNT (/tai-khoan) - NHA XINH
+   Tông màu ấm cúng, sang trọng Nhà Xinh (Terracotta #b86b49, Gỗ, Kem #faf8f5)
+   Tối ưu Mobile hoàn hảo cho Oppo Reno 6Z & iPhone 14 Pro Max
    ═══════════════════════════════════════════════ */
 
 :root {
+  --nx-primary: #b86b49;
+  --nx-primary-hover: #9e5737;
+  --nx-primary-light: #fbf5f1;
+  --nx-primary-border: #f0ddd3;
+  --nx-charcoal: #2c2724;
+  --nx-charcoal-dark: #1e1917;
+  --nx-warm-gray: #f7f4ef;
+  --nx-border: #e8e3dc;
+  --nx-border-light: #f0ebe4;
+  --nx-text: #2c2724;
+  --nx-text-muted: #736c64;
+  --nx-bg: #faf8f5;
+  --nx-terracotta: #b86b49;
   --nx-gold: #c59b27;
   --nx-gold-dark: #a17c18;
-  --nx-charcoal: #1c1b1a;
-  --nx-warm-gray: #f8f6f0;
-  --nx-border: #e8e4dc;
-  --nx-text-muted: #7d776e;
-  --nx-terracotta: #c85a32;
 }
 
 .prof-container {
@@ -20,82 +30,85 @@
 
 /* ── Top Member Banner Card ── */
 .prof-hero-card {
-  background: linear-gradient(135deg, #242220 0%, #151413 100%);
+  background: linear-gradient(135deg, #2c2522 0%, #1c1816 100%);
+  border: 1px solid rgba(184, 107, 73, 0.25);
   border-radius: 18px;
-  padding: 32px;
+  padding: 30px 32px;
   color: #fff;
-  margin-bottom: 32px;
+  margin-bottom: 28px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 30px rgba(44, 37, 34, 0.15);
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 32px;
+  gap: 28px;
   align-items: center;
 }
 
 .prof-hero-card::after {
   content: "";
   position: absolute;
-  top: -50%;
-  right: -20%;
+  top: -40%;
+  right: -15%;
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, rgba(197, 155, 39, 0.18) 0%, rgba(0, 0, 0, 0) 70%);
+  background: radial-gradient(circle, rgba(184, 107, 73, 0.22) 0%, rgba(0, 0, 0, 0) 70%);
   pointer-events: none;
 }
 
 .prof-avatar-wrap {
   position: relative;
+  flex-shrink: 0;
 }
 
 .prof-hero-avatar {
-  width: 84px;
-  height: 84px;
+  width: 80px;
+  height: 80px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #c85a32, #c59b27);
+  background: linear-gradient(135deg, #b86b49 0%, #d8825f 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 700;
   color: #fff;
-  border: 3px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
 .prof-tier-badge-pill {
   position: absolute;
   bottom: -4px;
   right: -4px;
-  background: linear-gradient(135deg, #e3ba4b, #a17c18);
-  color: #1a1712;
-  font-size: 10.5px;
+  background: linear-gradient(135deg, #b86b49, #9e5737);
+  color: #ffffff;
+  font-size: 10px;
   font-weight: 800;
   padding: 3px 8px;
   border-radius: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border: 2px solid #1c1b1a;
+  border: 2px solid #1c1816;
   display: flex;
   align-items: center;
   gap: 3px;
 }
 
 .prof-hero-info h2 {
-  font-size: 24px;
+  font-size: 23px;
   font-weight: 700;
   margin: 0 0 6px;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  color: #ffffff;
 }
 
 .prof-hero-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  font-size: 13.5px;
-  color: #b5afa4;
+  gap: 14px;
+  font-size: 13px;
+  color: #c4bcb0;
 }
 
 .prof-hero-meta span {
@@ -118,12 +131,12 @@
 }
 
 .prof-hero-tier-card {
-  background: rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 18px 24px;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 18px 22px;
   border-radius: 14px;
-  min-width: 240px;
+  min-width: 230px;
   text-align: right;
 }
 
@@ -131,7 +144,7 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #e5b948;
+  color: #e6a88b;
   font-weight: 700;
   margin-bottom: 4px;
 }
@@ -146,14 +159,14 @@
 .prof-tier-points span {
   font-size: 13px;
   font-weight: 500;
-  color: #aba497;
+  color: #b5ada3;
   margin-left: 4px;
 }
 
 .prof-tier-progress {
   width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.15);
   border-radius: 3px;
   margin: 10px 0 6px;
   overflow: hidden;
@@ -161,20 +174,24 @@
 
 .prof-tier-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #c85a32, #c59b27);
+  background: linear-gradient(90deg, #b86b49, #e08b65);
   border-radius: 3px;
 }
 
 .prof-tier-sub {
-  font-size: 11px;
-  color: #9c9588;
+  font-size: 11.5px;
+  color: #aba498;
+}
+
+.prof-tier-sub strong {
+  color: #ffffff;
 }
 
 /* ── Main Layout (Sidebar + Content) ── */
 .prof-layout {
   display: grid;
-  grid-template-columns: 290px 1fr;
-  gap: 32px;
+  grid-template-columns: 280px 1fr;
+  gap: 28px;
   align-items: start;
 }
 
@@ -183,10 +200,10 @@
   background: #ffffff;
   border: 1px solid var(--nx-border);
   border-radius: 16px;
-  padding: 20px 16px;
+  padding: 16px 14px;
   position: sticky;
   top: 100px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 4px 20px rgba(44, 39, 36, 0.04);
 }
 
 .prof-nav {
@@ -198,15 +215,15 @@
 .prof-nav-item {
   display: flex;
   align-items: center;
-  gap: 13px;
-  padding: 13px 16px;
+  gap: 12px;
+  padding: 12px 14px;
   border: none;
   border-radius: 10px;
   background: transparent;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
-  color: #555047;
+  color: #595349;
   cursor: pointer;
   text-decoration: none;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
@@ -216,20 +233,21 @@
 }
 
 .prof-nav-item:hover {
-  background: #f8f6f1;
-  color: var(--nx-charcoal);
+  background: #fbf7f3;
+  color: var(--nx-primary);
   transform: translateX(3px);
 }
 
 .prof-nav-item.active {
-  background: var(--nx-charcoal);
+  background: var(--nx-primary);
   color: #ffffff;
-  box-shadow: 0 4px 14px rgba(28, 27, 26, 0.18);
+  box-shadow: 0 4px 14px rgba(184, 107, 73, 0.28);
 }
 
 .prof-nav-item.active .prof-nav-badge {
-  background: var(--nx-gold);
-  color: #1a1712;
+  background: #ffffff;
+  color: var(--nx-primary);
+  font-weight: 800;
 }
 
 .prof-nav-badge {
@@ -250,7 +268,7 @@
 .prof-nav-divider {
   height: 1px;
   background: var(--nx-border);
-  margin: 10px 8px;
+  margin: 8px 6px;
 }
 
 .prof-nav-logout {
@@ -267,8 +285,8 @@
   background: #ffffff;
   border: 1px solid var(--nx-border);
   border-radius: 16px;
-  padding: 32px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  padding: 30px;
+  box-shadow: 0 4px 20px rgba(44, 39, 36, 0.04);
   min-height: 520px;
 }
 
@@ -283,7 +301,7 @@
 }
 
 .prof-section-header h3 {
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--nx-charcoal);
   margin: 0;
@@ -303,7 +321,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-  margin-bottom: 32px;
+  margin-bottom: 30px;
 }
 
 .prof-field-full {
@@ -312,26 +330,26 @@
 
 .prof-field label {
   display: block;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--nx-text-muted);
-  margin-bottom: 7px;
+  margin-bottom: 6px;
 }
 
 .prof-field input,
 .prof-field select,
 .prof-field textarea {
   width: 100%;
-  padding: 12px 16px;
+  padding: 11px 14px;
   border: 1px solid var(--nx-border);
   border-radius: 10px;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--nx-charcoal);
   outline: none;
-  background: #fcfbfa;
+  background: #fdfcfb;
   transition: all 0.2s ease;
   box-sizing: border-box;
 }
@@ -340,17 +358,17 @@
 .prof-field select:focus,
 .prof-field textarea:focus {
   background: #ffffff;
-  border-color: var(--nx-gold);
-  box-shadow: 0 0 0 3px rgba(197, 155, 39, 0.15);
+  border-color: var(--nx-primary);
+  box-shadow: 0 0 0 3px rgba(184, 107, 73, 0.15);
 }
 
 .prof-field p.read-only {
   margin: 0;
-  padding: 12px 16px;
-  background: #f9f8f5;
+  padding: 11px 14px;
+  background: #fbf9f6;
   border: 1px solid #ede8e0;
   border-radius: 10px;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--nx-charcoal);
 }
@@ -359,8 +377,9 @@
 .btn-nx-primary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  background: var(--nx-charcoal);
+  background: var(--nx-primary);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -369,16 +388,25 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(184, 107, 73, 0.22);
 }
 
 .btn-nx-primary:hover {
-  background: #33302c;
+  background: var(--nx-primary-hover);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(184, 107, 73, 0.32);
+}
+
+.btn-nx-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .btn-nx-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   background: #ffffff;
   color: var(--nx-charcoal);
@@ -392,13 +420,15 @@
 }
 
 .btn-nx-secondary:hover {
-  background: #f8f6f2;
-  border-color: #d8d3c7;
+  background: #fbf8f5;
+  border-color: #d8d0c4;
+  color: var(--nx-primary);
 }
 
 .btn-nx-danger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   background: #fee2e2;
   color: #b91c1c;
@@ -419,36 +449,36 @@
 /* ── Sổ Địa Chỉ (Addresses) ── */
 .prof-address-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 18px;
 }
 
 .prof-addr-card {
   border: 1.5px solid var(--nx-border);
   border-radius: 14px;
-  padding: 22px;
+  padding: 20px;
   background: #ffffff;
   display: flex;
-  flex-col: column;
+  flex-direction: column;
   position: relative;
   transition: all 0.25s ease;
 }
 
 .prof-addr-card:hover {
-  border-color: #c9c3b6;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+  border-color: #cfc7ba;
+  box-shadow: 0 6px 20px rgba(44, 39, 36, 0.05);
 }
 
 .prof-addr-card.is-default {
-  border-color: var(--nx-gold);
-  background: #fdfbf7;
+  border-color: var(--nx-primary);
+  background: #fdfaf7;
 }
 
 .prof-addr-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .prof-addr-badges {
@@ -458,9 +488,9 @@
 }
 
 .badge-default {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background: #fbf0e9;
+  color: var(--nx-primary);
+  border: 1px solid #f2d8c9;
   font-size: 11px;
   font-weight: 700;
   padding: 3px 8px;
@@ -480,26 +510,26 @@
 }
 
 .prof-addr-name {
-  font-size: 16px;
+  font-size: 15.5px;
   font-weight: 700;
   color: var(--nx-charcoal);
   margin: 0 0 4px;
 }
 
 .prof-addr-phone {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #615a4f;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .prof-addr-text {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #4a453d;
   line-height: 1.5;
-  margin: 0 0 16px;
+  margin: 0 0 14px;
   flex-grow: 1;
 }
 
@@ -507,7 +537,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid #ece8df;
 }
 
@@ -517,33 +547,42 @@
   align-items: center;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 14px;
+  padding-bottom: 12px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--nx-border);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prof-order-filter-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .prof-filter-pill {
-  padding: 8px 16px;
+  padding: 7px 15px;
   border-radius: 20px;
   border: 1px solid var(--nx-border);
   background: #ffffff;
   color: #635d52;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 
 .prof-filter-pill:hover {
-  background: #f8f6f1;
-  color: var(--nx-charcoal);
+  background: #fbf7f3;
+  color: var(--nx-primary);
+  border-color: #ebdcd2;
 }
 
 .prof-filter-pill.active {
-  background: var(--nx-charcoal);
+  background: var(--nx-primary);
   color: #ffffff;
-  border-color: var(--nx-charcoal);
+  border-color: var(--nx-primary);
+  box-shadow: 0 2px 8px rgba(184, 107, 73, 0.22);
 }
 
 .prof-orders-wrap {
@@ -561,53 +600,53 @@
 }
 
 .prof-order-card:hover {
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 6px 22px rgba(44, 39, 36, 0.06);
 }
 
 .prof-order-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 22px;
-  background: #f9f8f5;
+  padding: 15px 20px;
+  background: #fbf9f6;
   border-bottom: 1px solid var(--nx-border);
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .prof-order-code {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 700;
   color: var(--nx-charcoal);
   letter-spacing: -0.01em;
 }
 
 .prof-order-date {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--nx-text-muted);
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: 12px;
+  margin-left: 10px;
 }
 
 .prof-status-badge {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: 16px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
-.status-pending { background: #fef3c7; color: #92400e; }
-.status-processing { background: #e0f2fe; color: #0369a1; }
-.status-shipping { background: #ede9fe; color: #6d28d9; }
-.status-completed { background: #dcfce7; color: #15803d; }
-.status-cancelled { background: #fee2e2; color: #b91c1c; }
+.status-pending { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+.status-processing { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+.status-shipping { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; }
+.status-completed { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.status-cancelled { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
 
 .prof-order-body {
-  padding: 18px 22px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -616,16 +655,16 @@
 .prof-order-item-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .prof-order-thumb {
-  width: 60px;
-  height: 60px;
+  width: 58px;
+  height: 58px;
   border-radius: 8px;
   object-fit: cover;
-  background: #f3efe9;
-  border: 1px solid #ebe6dc;
+  background: #f5f2ed;
+  border: 1px solid #ebe5dc;
   flex-shrink: 0;
 }
 
@@ -635,24 +674,24 @@
 }
 
 .prof-order-item-title {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--nx-charcoal);
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .prof-order-item-sub {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--nx-text-muted);
 }
 
 .prof-order-item-price {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
-  color: var(--nx-charcoal);
+  color: var(--nx-primary);
   white-space: nowrap;
 }
 
@@ -660,19 +699,21 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 22px;
+  padding: 14px 20px;
   border-top: 1px solid var(--nx-border);
   background: #fdfcfb;
+  gap: 12px;
 }
 
 .prof-order-total-sum {
-  font-size: 13.5px;
+  font-size: 13px;
   color: #635d52;
 }
 
 .prof-order-total-sum strong {
-  font-size: 17px;
-  color: var(--nx-charcoal);
+  font-size: 16px;
+  color: var(--nx-primary);
+  font-weight: 800;
   margin-left: 6px;
 }
 
@@ -680,13 +721,13 @@
 .prof-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(24, 23, 21, 0.6);
+  background: rgba(30, 26, 24, 0.65);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
 }
 
 .prof-modal {
@@ -694,7 +735,7 @@
   border-radius: 18px;
   max-width: 560px;
   width: 100%;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
   overflow: hidden;
   animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -705,45 +746,48 @@
 }
 
 .prof-modal-header {
-  padding: 20px 24px;
+  padding: 18px 22px;
   border-bottom: 1px solid var(--nx-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: #fdfbf8;
 }
 
 .prof-modal-header h4 {
-  font-size: 18px;
+  font-size: 17.5px;
   font-weight: 700;
   color: var(--nx-charcoal);
   margin: 0;
 }
 
 .prof-modal-body {
-  padding: 24px;
+  padding: 22px;
   max-height: 75vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .prof-modal-footer {
-  padding: 16px 24px;
+  padding: 14px 22px;
   border-top: 1px solid var(--nx-border);
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  background: #fbfaf8;
+  gap: 10px;
+  background: #faf8f5;
 }
 
-/* ── Toast Notification (Luôn hiển thị trên cùng - Top Right, High Z-Index) ── */
+/* ── Toast Notification ── */
 .prof-toast {
   position: fixed;
   top: 24px;
   right: 24px;
-  background: var(--nx-charcoal);
+  background: #231f1c;
   color: #fff;
-  padding: 14px 22px;
+  padding: 13px 20px;
   border-radius: 12px;
+  border: 1px solid rgba(184, 107, 73, 0.3);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
   font-size: 13.5px;
   font-weight: 600;
@@ -759,45 +803,458 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Responsive Mobile ── */
+/* ═══════════════════════════════════════════════
+   ORDER TIMELINE & CANCEL MODAL & FINANCIAL BREAKDOWN
+   ═══════════════════════════════════════════════ */
+
+/* ── Timeline Lịch sử Trạng Thái ── */
+.prof-timeline-wrap {
+  position: relative;
+  padding-left: 24px;
+}
+
+.prof-timeline-item {
+  position: relative;
+  padding-bottom: 18px;
+}
+
+.prof-timeline-item:last-child {
+  padding-bottom: 2px;
+}
+
+.prof-timeline-line {
+  position: absolute;
+  top: 14px;
+  left: -18px;
+  bottom: -4px;
+  width: 2px;
+  background-color: #e5ded4;
+}
+
+.prof-timeline-item:last-child .prof-timeline-line {
+  display: none;
+}
+
+.prof-timeline-dot {
+  position: absolute;
+  left: -23px;
+  top: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: var(--nx-primary);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px var(--nx-primary);
+}
+
+.prof-timeline-dot.dot-pending { background-color: #f59e0b; box-shadow: 0 0 0 2px #f59e0b; }
+.prof-timeline-dot.dot-processing { background-color: #0284c7; box-shadow: 0 0 0 2px #0284c7; }
+.prof-timeline-dot.dot-shipping { background-color: #7c3aed; box-shadow: 0 0 0 2px #7c3aed; }
+.prof-timeline-dot.dot-completed { background-color: #16a34a; box-shadow: 0 0 0 2px #16a34a; }
+.prof-timeline-dot.dot-cancelled { background-color: #dc2626; box-shadow: 0 0 0 2px #dc2626; }
+
+/* ── Tùy chọn lý do hủy đơn hàng ── */
+.prof-cancel-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid #e7e2d7;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #faf8f5;
+  font-size: 13px;
+  color: #37332f;
+}
+
+.prof-cancel-option:hover {
+  background: #f4eee4;
+  border-color: #d1c6b5;
+}
+
+.prof-cancel-option.selected {
+  border-color: var(--nx-primary);
+  background: #fdf7f3;
+  box-shadow: 0 0 0 1px var(--nx-primary);
+}
+
+/* ── Bảng tổng kết tài chính (Breakdown) ── */
+.prof-summary-box {
+  background: #faf8f5;
+  border: 1px solid #eae3d8;
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.prof-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 5px 0;
+  color: #615a4f;
+}
+
+.prof-summary-row.total-row {
+  border-top: 1px dashed #d9d0c2;
+  margin-top: 8px;
+  padding-top: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--nx-charcoal);
+}
+
+/* ═══════════════════════════════════════════════
+   MOBILE RESPONSIVE ENHANCEMENTS
+   (Oppo Reno 6Z ~360px - 412px & iPhone 14 Pro Max ~430px)
+   ═══════════════════════════════════════════════ */
+
 @media (max-width: 960px) {
+  .prof-container {
+    padding: 0 14px 50px;
+  }
+
+  /* Compact Hero Card on Mobile */
   .prof-hero-card {
     grid-template-columns: 1fr;
-    text-align: center;
-    padding: 24px 20px;
-    gap: 20px;
+    text-align: left;
+    padding: 16px 18px;
+    gap: 14px;
+    border-radius: 14px;
+    margin-bottom: 14px;
   }
+
   .prof-avatar-wrap {
-    margin: 0 auto;
+    margin: 0;
   }
+
+  .prof-hero-avatar {
+    width: 56px;
+    height: 56px;
+    font-size: 22px;
+  }
+
+  .prof-hero-info h2 {
+    font-size: 18px;
+    margin-bottom: 4px;
+  }
+
   .prof-hero-meta {
-    justify-content: center;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
   }
+
   .prof-hero-tier-card {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: left;
+    min-width: unset;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.07);
   }
+
+  .prof-tier-progress {
+    display: none;
+  }
+
+  .prof-tier-points {
+    font-size: 20px;
+  }
+
   .prof-layout {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
+
+  /* Slim, compact horizontal pill sidebar on mobile */
   .prof-sidebar {
-    position: static;
-    padding: 12px;
+    position: sticky;
+    top: 60px;
+    z-index: 30;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--nx-border);
+    box-shadow: 0 2px 10px rgba(44, 39, 36, 0.05);
   }
+
   .prof-nav {
     flex-direction: row;
     overflow-x: auto;
-    gap: 6px;
-    padding-bottom: 6px;
+    gap: 4px;
+    padding: 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+
+  .prof-nav::-webkit-scrollbar {
+    display: none;
+  }
+
   .prof-nav-item {
+    width: auto !important;
     white-space: nowrap;
-    padding: 10px 14px;
-    font-size: 13.5px;
+    padding: 6px 11px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+    flex-shrink: 0;
+    gap: 5px;
   }
+
+  .prof-nav-badge {
+    margin-left: 4px !important;
+    min-width: 18px;
+    height: 18px;
+    font-size: 10px;
+    padding: 0 4px;
+  }
+
+  .prof-nav-item:hover {
+    transform: none;
+  }
+
+  .prof-nav-divider {
+    display: none;
+  }
+
   .prof-content {
-    padding: 22px 18px;
+    padding: 18px 14px;
+    border-radius: 14px;
+    min-height: unset;
   }
+
   .prof-info-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .prof-container {
+    padding: 0 10px 45px;
+  }
+
+  /* Ultra-compact Hero header for Oppo Reno 6Z & iPhone 14 Pro Max */
+  .prof-hero-card {
+    padding: 14px 14px;
+    gap: 10px;
+    border-radius: 12px;
+  }
+
+  .prof-hero-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 19px;
+  }
+
+  .prof-hero-info h2 {
+    font-size: 16px;
+  }
+
+  .prof-hero-meta {
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  .prof-token-status {
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .prof-hero-tier-card {
+    padding: 8px 12px;
+  }
+
+  .prof-tier-points {
+    font-size: 17px;
+  }
+
+  .prof-tier-sub {
+    font-size: 11px;
+  }
+
+  /* Ultra-compact Sidebar pill tab */
+  .prof-sidebar {
+    top: 52px;
+    padding: 3px;
+    border-radius: 10px;
+  }
+
+  .prof-nav-item {
+    padding: 5px 9px;
+    font-size: 11.5px;
+    gap: 4px;
+  }
+
+  .prof-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .prof-section-header .btn-nx-primary,
+  .prof-section-header .btn-nx-secondary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Address card on 360px */
+  .prof-address-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prof-addr-card {
+    padding: 16px;
+  }
+
+  .prof-addr-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .prof-addr-actions button {
+    flex: 1;
+  }
+
+  /* Order Card on Mobile */
+  .prof-order-head {
+    padding: 12px 14px;
+    gap: 6px;
+  }
+
+  .prof-order-code {
+    font-size: 13.5px;
+  }
+
+  .prof-order-date {
+    display: block;
+    margin-left: 0;
+    margin-top: 3px;
+    font-size: 11.5px;
+  }
+
+  .prof-status-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .prof-order-body {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .prof-order-item-row {
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .prof-order-thumb {
+    width: 50px;
+    height: 50px;
+  }
+
+  .prof-order-item-title {
+    font-size: 13px;
+    white-space: normal;
+    line-height: 1.35;
+  }
+
+  .prof-order-item-sub {
+    font-size: 11.5px;
+  }
+
+  .prof-order-item-price {
+    font-size: 13px;
+  }
+
+  .prof-order-foot {
+    padding: 12px 14px;
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .prof-order-foot .flex {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .prof-order-foot button {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 10px;
+  }
+
+  .prof-order-total-sum {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    font-size: 12.5px;
+  }
+
+  .prof-order-total-sum strong {
+    font-size: 15px;
+  }
+
+  /* Modal on Mobile (iPhone 14 Pro Max Safe Area & Oppo Reno 6Z touch) */
+  .prof-modal-backdrop {
+    padding: 10px;
+    align-items: flex-end;
+  }
+
+  .prof-modal {
+    max-height: 92vh;
+    border-radius: 18px 18px 14px 14px;
+    margin-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .prof-modal-header {
+    padding: 14px 16px;
+  }
+
+  .prof-modal-header h4 {
+    font-size: 16px;
+  }
+
+  .prof-modal-body {
+    padding: 16px;
+    max-height: calc(85vh - 120px);
+  }
+
+  .prof-modal-footer {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .prof-modal-footer button {
+    flex: 1;
+  }
+
+  .prof-modal-footer .btn-nx-danger {
+    width: 100%;
+    flex: unset;
+    margin-right: 0 !important;
+    order: -1;
+  }
+
+  /* Toast Notification on Mobile */
+  .prof-toast {
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    width: auto;
+    padding: 11px 16px;
+    font-size: 12.5px;
+    justify-content: center;
   }
 }

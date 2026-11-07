@@ -53,13 +53,15 @@ public class CheckoutController extends BaseController {
             @RequestParam String code,
             @RequestParam(defaultValue = "0") java.math.BigDecimal subtotal,
             @RequestParam(defaultValue = "0") java.math.BigDecimal shippingFee,
+            @RequestParam(required = false) String phone,
             @AuthenticationPrincipal UserDetails principal
     ) {
         return checkoutService.previewCoupon(
                 code,
                 subtotal,
                 shippingFee,
-                principal == null ? null : principal.getUsername()
+                principal == null ? null : principal.getUsername(),
+                phone
         );
     }
 
@@ -105,7 +107,8 @@ public class CheckoutController extends BaseController {
     }
 
     @GetMapping({"/payments/vnpay/return", "/checkout/payments/vnpay/return"})
-    public RedirectView receiveVnPayReturn(@RequestParam MultiValueMap<String, String> parameters) {
+    public RedirectView receiveVnPayReturn(@RequestParam MultiValueMap<String, String> parameters,
+                                           HttpServletRequest servletRequest) {
         boolean valid = vnPayService.verify(parameters);
         String txnRef = valid ? parameters.getFirst("vnp_TxnRef") : null;
         String responseCode = parameters.getFirst("vnp_ResponseCode");
@@ -136,8 +139,8 @@ public class CheckoutController extends BaseController {
             }
         }
 
-        // Luôn chuyển hướng trình duyệt về trang kết quả thanh toán trên Frontend (/payment/result)
-        String baseUrl = vnPayService.getFrontendResultUrl();
+        // Chuyển hướng trình duyệt về trang kết quả thanh toán trên đúng IP/host client (/payment/result)
+        String baseUrl = vnPayService.resolveFrontendResultUrl(servletRequest);
         if (baseUrl == null || baseUrl.isBlank()) {
             baseUrl = "http://localhost:5173/payment/result";
         }

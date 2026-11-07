@@ -18,6 +18,26 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     Page<Order> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
+    @org.springframework.data.jpa.repository.Query(value = """
+            SELECT o FROM Order o
+            WHERE o.user.id = :userId
+               OR (:email IS NOT NULL AND :email <> '' AND LOWER(o.recipientEmail) = LOWER(:email))
+               OR (:phone IS NOT NULL AND :phone <> '' AND o.recipientPhone = :phone)
+            ORDER BY o.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(o) FROM Order o
+            WHERE o.user.id = :userId
+               OR (:email IS NOT NULL AND :email <> '' AND LOWER(o.recipientEmail) = LOWER(:email))
+               OR (:phone IS NOT NULL AND :phone <> '' AND o.recipientPhone = :phone)
+            """)
+    Page<Order> findCustomerOrders(
+            @org.springframework.data.repository.query.Param("userId") Long userId,
+            @org.springframework.data.repository.query.Param("email") String email,
+            @org.springframework.data.repository.query.Param("phone") String phone,
+            Pageable pageable
+    );
+
     Page<Order> findByOrderStatusOrderByCreatedAtDesc(String orderStatus, Pageable pageable);
 
     Page<Order> findByPaymentStatusOrderByCreatedAtDesc(String paymentStatus, Pageable pageable);
@@ -49,4 +69,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             @org.springframework.data.repository.query.Param("paymentStatus") String paymentStatus,
             Pageable pageable
     );
+
+    long countByUserIdAndOrderStatusNot(Long userId, String orderStatus);
+
+    long countByRecipientPhoneAndOrderStatusNot(String recipientPhone, String orderStatus);
 }

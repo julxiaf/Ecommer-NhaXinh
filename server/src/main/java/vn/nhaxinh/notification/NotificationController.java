@@ -6,18 +6,9 @@ import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import vn.nhaxinh.controller.BaseController;
-import vn.nhaxinh.order.Order;
-import vn.nhaxinh.order.OrderItem;
-import vn.nhaxinh.order.OrderRepository;
-import vn.nhaxinh.order.OrderService;
+import vn.nhaxinh.order.*;
 import vn.nhaxinh.security.ApiErrorCode;
 import vn.nhaxinh.security.ApiException;
 
@@ -113,7 +104,42 @@ public class NotificationController extends BaseController {
         return ResponseEntity.ok(logs.map(EmailLogResponse::from));
     }
 
+    /**
+     * Gửi email kiểm thử (Test SMTP) tới một địa chỉ email bất kỳ.
+     */
+    @PostMapping("/emails/test")
+    public ResponseEntity<Map<String, Object>> sendTestEmail(@RequestBody TestEmailRequest request) {
+        if (request == null || request.email() == null || request.email().isBlank()) {
+            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Vui lòng nhập địa chỉ email nhận kiểm thử.");
+        }
+        EmailLog emailLog = notificationService.sendTestEmail(
+                request.email().trim(),
+                request.subject(),
+                request.message()
+        );
+        if (emailLog == null) {
+            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Không thể gửi email kiểm thử.");
+        }
+        boolean isSuccess = "SENT".equalsIgnoreCase(emailLog.getSendStatus());
+        return ResponseEntity.ok(Map.of(
+                "success", isSuccess,
+                "recipientEmail", emailLog.getRecipientEmail(),
+                "sendStatus", emailLog.getSendStatus(),
+                "subject", emailLog.getSubject(),
+                "smtpConfigured", notificationService.isSmtpConfigured(),
+                "providerMessageId", emailLog.getProviderMessageId() != null ? emailLog.getProviderMessageId() : "",
+                "errorMessage", emailLog.getErrorMessage() != null ? emailLog.getErrorMessage() : "",
+                "sentAt", emailLog.getSentAt() != null ? emailLog.getSentAt().toString() : LocalDateTime.now().toString(),
+                "message", isSuccess
+                        ? "Đã gửi email kiểm thử thành công tới " + emailLog.getRecipientEmail()
+                        : "Gửi email thất bại: " + (emailLog.getErrorMessage() != null ? emailLog.getErrorMessage() : "Lỗi SMTP")
+        ));
+    }
+
     public record ResendOrderEmailRequest(String email) {
+    }
+
+    public record TestEmailRequest(String email, String subject, String message) {
     }
 
     public record EmailLogResponse(

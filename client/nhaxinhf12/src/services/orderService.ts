@@ -1,4 +1,5 @@
 import { ENDPOINTS, buildUrlWithQuery } from "./apiEndpoints";
+import { userService } from "./userService";
 
 export interface OrderItemResponse {
   id: number;
@@ -30,15 +31,15 @@ export interface OrderResponse {
 
 export const orderService = {
   /**
-   * Lấy lịch sử đơn hàng của tài khoản đang đăng nhập
+   * Lấy lịch sử đơn hàng của tài khoản đang đăng nhập (xác thực qua JWT Bearer Token & session cookie của server)
    */
   async getMyOrders(page = 0, size = 10): Promise<{ content: OrderResponse[]; totalElements: number }> {
-    const token = localStorage.getItem("nhaxinh_auth_token");
     const url = buildUrlWithQuery(ENDPOINTS.ORDERS.MY, { page, size });
     const res = await fetch(url, {
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...userService.getAuthHeaders(),
       },
     });
     if (!res.ok) throw new Error("Không thể tải danh sách đơn hàng");
@@ -52,7 +53,11 @@ export const orderService = {
     const url = buildUrlWithQuery(ENDPOINTS.ORDERS.BY_CODE(orderCode), phone ? { phone } : undefined);
     
     const res = await fetch(url, {
-      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...userService.getAuthHeaders(),
+      },
     });
     if (!res.ok) throw new Error("Không tìm thấy đơn hàng");
     return res.json();
@@ -64,7 +69,11 @@ export const orderService = {
   async cancelOrder(orderCode: string, phone?: string, reason?: string): Promise<void> {
     const res = await fetch(ENDPOINTS.ORDERS.CANCEL(orderCode), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...userService.getAuthHeaders(),
+      },
       body: JSON.stringify({ phone, reason }),
     });
     if (!res.ok) {
@@ -78,11 +87,11 @@ export const orderService = {
    */
   async getAdminOrders(params?: { keyword?: string; orderStatus?: string; paymentStatus?: string; page?: number; size?: number }) {
     const url = buildUrlWithQuery(ENDPOINTS.ADMIN.ORDERS.BASE, params);
-    const token = localStorage.getItem("nhaxinh_auth_token");
     const res = await fetch(url, {
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...userService.getAuthHeaders(),
       },
     });
     if (!res.ok) throw new Error("Không thể tải danh sách đơn quản trị");

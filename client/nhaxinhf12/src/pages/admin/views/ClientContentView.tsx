@@ -3,7 +3,7 @@
 // Cho phép Admin tùy biến Menu, Banner Hero và Pandora Suggestion
 // ══════════════════════════════════════════════════════════
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Menu,
   Image,
@@ -20,11 +20,18 @@ import {
   Eye,
   EyeOff,
   Sliders,
-  Info
+  Info,
+  Layers,
+  Database,
+  X,
+  Upload,
+  Film,
+  Loader2,
 } from "lucide-react";
 import {
   clientCmsService,
   type ClientMenuItem,
+  type ClientSubMenuItem,
   type HeroBannerItem,
   type PandoraSuggestionConfig
 } from "../../../services/clientCmsService";
@@ -36,7 +43,8 @@ interface ClientContentViewProps {
 
 type CmsTab = "menu" | "banners" | "pandora";
 
-export default function ClientContentView({ currentRole: _currentRole }: ClientContentViewProps) {
+export default function ClientContentView({ currentRole }: ClientContentViewProps) {
+  void currentRole;
   const [activeTab, setActiveTab] = useState<CmsTab>("menu");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -45,6 +53,25 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
   const [banners, setBanners] = useState<HeroBannerItem[]>(() => clientCmsService.getHeroBanners());
   const [pandoraConfig, setPandoraConfig] = useState<PandoraSuggestionConfig>(() => clientCmsService.getPandoraConfig());
 
+  // Tải cấu hình Menu, Banners, Pandora mới nhất từ Server khi mở trang quản trị
+  useEffect(() => {
+    clientCmsService.fetchMenuItems().then((items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setMenuItems(items);
+      }
+    });
+    clientCmsService.fetchHeroBanners().then((items) => {
+      if (Array.isArray(items) && items.length > 0) {
+        setBanners(items);
+      }
+    });
+    clientCmsService.fetchPandoraConfig().then((cfg) => {
+      if (cfg) {
+        setPandoraConfig(cfg);
+      }
+    });
+  }, []);
+
   // ── State Modals & Form ──
   // 1. Menu Modal
   const [menuModalOpen, setMenuModalOpen] = useState(false);
@@ -52,12 +79,16 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
   const [menuForm, setMenuForm] = useState<Partial<ClientMenuItem>>({
     label: "",
     to: "",
-    kind: "link",
+    kind: "dropdown",
     badge: "",
     isVisible: true,
   });
+  const [menuFormSubItems, setMenuFormSubItems] = useState<ClientSubMenuItem[]>([]);
+  const [newSubLabel, setNewSubLabel] = useState("");
+  const [newSubTo, setNewSubTo] = useState("");
+  const [isSyncingDb, setIsSyncingDb] = useState(false);
 
-  // 2. Banner Modal
+  // 2. Banner Modal & Media Upload
   const [bannerModalOpen, setBannerModalOpen] = useState(false);
   const [editingBanner, setEditingBanner] = useState<HeroBannerItem | null>(null);
   const [bannerForm, setBannerForm] = useState<Partial<HeroBannerItem>>({
@@ -68,6 +99,11 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
     isActive: true,
     actions: [{ label: "Khám phá ngay", url: "/products", isPrimary: true }],
   });
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadSuccessName, setUploadSuccessName] = useState<string | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
+  const posterFileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -75,38 +111,151 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
   };
 
   // ══════════════════════════════════════════════════════════
-  // XỬ LÝ MENU ITEMS
+  // XỬ LÝ MENU ITEMS & SUBMENU TÙY BIẾN / ĐỒNG BỘ TỪ DB
   // ══════════════════════════════════════════════════════════
   const handleOpenAddMenu = () => {
     setEditingMenuItem(null);
     setMenuForm({
       label: "",
-      to: "/products",
-      kind: "link",
+      to: "/san-pham",
+      kind: "dropdown",
       badge: "",
       isVisible: true,
     });
+    setMenuFormSubItems([]);
+    setNewSubLabel("");
+    setNewSubTo("");
     setMenuModalOpen(true);
   };
 
   const handleOpenEditMenu = (item: ClientMenuItem) => {
     setEditingMenuItem(item);
     setMenuForm({ ...item });
+    setMenuFormSubItems(item.children ? [...item.children] : []);
+    setNewSubLabel("");
+    setNewSubTo("");
     setMenuModalOpen(true);
   };
 
-  const handleSaveMenuModal = (e: React.FormEvent) => {
+  // Nạp danh mục từ Database Backend vào danh sách Menu con trong Modal
+  const handleLoadDbCategoriesIntoModal = async () => {
+    try {
+      setIsSyncingDb(true);
+      const res = await fetch("/api/v1/categories");
+      if (!res.ok) throw new Error("Không thể kết nối API Categories");
+      const cats: Array<{ name: string; slug: string }> = await res.json();
+      const loaded: ClientSubMenuItem[] = cats.map((c, idx) => ({
+        id: `sub-cat-${c.slug || idx}-${Date.now()}`,
+        label: c.name,
+        to: `/san-pham?category=${encodeURIComponent(c.slug || c.name)}`,
+        isVisible: true,
+      }));
+      setMenuFormSubItems(loaded);
+      showToast(`Đã nạp ${loaded.length} danh mục sản phẩm từ Database vào danh sách mục con!`);
+    } catch {
+      const fallback = [
+        { name: "Sofa & Armchair", slug: "sofa" },
+        { name: "Bàn trà & Bàn góc", slug: "ban-tra" },
+        { name: "Bàn ăn & Ghế ăn", slug: "ban-an" },
+        { name: "Giường ngủ & Bàn đầu giường", slug: "giuong-ngu" },
+        { name: "Tủ áo & Kệ tivi", slug: "tu-ke" },
+        { name: "Đèn & Đồ trang trí", slug: "trang-tri" },
+      ];
+      setMenuFormSubItems(
+        fallback.map((c, idx) => ({
+          id: `sub-cat-${c.slug}-${idx}`,
+          label: c.name,
+          to: `/san-pham?category=${c.slug}`,
+          isVisible: true,
+        }))
+      );
+      showToast("Đã nạp danh mục sản phẩm chuẩn vào danh sách mục con!");
+    } finally {
+      setIsSyncingDb(false);
+    }
+  };
+
+  // Đồng bộ nhanh từ Database Backend ngoài Toolbar
+  const handleSyncCategoriesToMenu = async () => {
+    try {
+      setIsSyncingDb(true);
+      const res = await fetch("/api/v1/categories");
+      if (!res.ok) throw new Error("Không thể kết nối API Categories");
+      const cats: Array<{ name: string; slug: string }> = await res.json();
+      const updated = clientCmsService.syncCategoriesToMenu(cats);
+      setMenuItems(updated);
+      showToast(`Đã đồng bộ ${cats.length} danh mục sản phẩm từ Database vào Menu Header!`);
+    } catch {
+      const fallback = [
+        { name: "Sofa & Armchair", slug: "sofa" },
+        { name: "Bàn trà & Bàn góc", slug: "ban-tra" },
+        { name: "Bàn ăn & Ghế ăn", slug: "ban-an" },
+        { name: "Giường ngủ & Bàn đầu giường", slug: "giuong-ngu" },
+        { name: "Tủ áo & Kệ tivi", slug: "tu-ke" },
+        { name: "Đèn & Đồ trang trí", slug: "trang-tri" },
+      ];
+      const updated = clientCmsService.syncCategoriesToMenu(fallback);
+      setMenuItems(updated);
+      showToast("Đã đồng bộ danh mục sản phẩm chuẩn vào Menu Header!");
+    } finally {
+      setIsSyncingDb(false);
+    }
+  };
+
+  // Thêm mục con mới vào danh sách đang sửa
+  const handleAddSubItem = () => {
+    if (!newSubLabel.trim() || !newSubTo.trim()) {
+      alert("Vui lòng nhập tên mục con và đường dẫn liên kết.");
+      return;
+    }
+    const newSub: ClientSubMenuItem = {
+      id: `sub-custom-${Date.now()}`,
+      label: newSubLabel.trim(),
+      to: newSubTo.trim(),
+      isVisible: true,
+    };
+    setMenuFormSubItems((prev) => [...prev, newSub]);
+    setNewSubLabel("");
+    setNewSubTo("");
+  };
+
+  // Xóa mục con
+  const handleDeleteSubItem = (subId: string) => {
+    setMenuFormSubItems((prev) => prev.filter((s) => s.id !== subId));
+  };
+
+  // Di chuyển thứ tự mục con
+  const handleMoveSubItem = (index: number, direction: "up" | "down") => {
+    const targetIdx = direction === "up" ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= menuFormSubItems.length) return;
+    const list = [...menuFormSubItems];
+    const temp = list[index];
+    list[index] = list[targetIdx];
+    list[targetIdx] = temp;
+    setMenuFormSubItems(list);
+  };
+
+  const handleSaveMenuModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!menuForm.label || !menuForm.to) {
       alert("Vui lòng nhập tên hiển thị và đường dẫn URL.");
       return;
     }
 
+    const finalKind = menuForm.kind || (menuFormSubItems.length > 0 ? "dropdown" : "link");
+
     let updated: ClientMenuItem[];
     if (editingMenuItem) {
       updated = menuItems.map((m) =>
         m.id === editingMenuItem.id
-          ? { ...m, ...menuForm, label: menuForm.label!, to: menuForm.to!, kind: menuForm.kind || "link" }
+          ? {
+              ...m,
+              ...menuForm,
+              label: menuForm.label!,
+              to: menuForm.to!,
+              kind: finalKind,
+              children: menuFormSubItems.length > 0 ? menuFormSubItems : undefined,
+            }
           : m
       );
     } else {
@@ -114,30 +263,31 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
         id: `nav-custom-${Date.now()}`,
         label: menuForm.label!,
         to: menuForm.to!,
-        kind: menuForm.kind || "link",
+        kind: finalKind,
         badge: menuForm.badge || undefined,
         isVisible: menuForm.isVisible ?? true,
         order: menuItems.length + 1,
+        children: menuFormSubItems.length > 0 ? menuFormSubItems : undefined,
       };
       updated = [...menuItems, newItem];
     }
 
     setMenuItems(updated);
-    clientCmsService.saveMenuItems(updated);
+    await clientCmsService.saveMenuItems(updated);
     setMenuModalOpen(false);
-    showToast("Đã lưu thay đổi mục Menu thành công!");
+    showToast("Đã lưu thay đổi mục Menu thành công vào cơ sở dữ liệu!");
   };
 
-  const handleDeleteMenu = (id: string) => {
+  const handleDeleteMenu = async (id: string) => {
     if (window.confirm("Bạn có chắc chắn muốn xóa mục menu này?")) {
       const updated = menuItems.filter((m) => m.id !== id);
       setMenuItems(updated);
-      clientCmsService.saveMenuItems(updated);
+      await clientCmsService.saveMenuItems(updated);
       showToast("Đã xóa mục menu.");
     }
   };
 
-  const handleMoveMenu = (index: number, direction: "up" | "down") => {
+  const handleMoveMenu = async (index: number, direction: "up" | "down") => {
     const newItems = [...menuItems];
     const targetIdx = direction === "up" ? index - 1 : index + 1;
     if (targetIdx < 0 || targetIdx >= newItems.length) return;
@@ -152,37 +302,122 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
     });
 
     setMenuItems(newItems);
-    clientCmsService.saveMenuItems(newItems);
+    await clientCmsService.saveMenuItems(newItems);
     showToast("Đã cập nhật thứ tự Menu.");
   };
 
-  const handleToggleMenuVisible = (id: string) => {
+  const handleToggleMenuVisible = async (id: string) => {
     const updated = menuItems.map((m) =>
       m.id === id ? { ...m, isVisible: !m.isVisible } : m
     );
     setMenuItems(updated);
-    clientCmsService.saveMenuItems(updated);
+    await clientCmsService.saveMenuItems(updated);
     showToast("Đã cập nhật trạng thái hiển thị Menu.");
   };
 
   const handleResetMenuDefault = () => {
-    if (window.confirm("Khôi phục danh sách Menu về thiết lập mặc định của Nhà Xinh?")) {
+    if (window.confirm("Làm trống danh sách Menu để thiết lập mới từ đầu?")) {
       const reset = clientCmsService.resetMenuItems();
       setMenuItems(reset);
-      showToast("Đã khôi phục Menu về mặc định.");
+      showToast("Đã làm trống danh sách Menu.");
     }
   };
 
   // ══════════════════════════════════════════════════════════
-  // XỬ LÝ HERO BANNERS
+  // XỬ LÝ HERO BANNERS & TẢI ẢNH/VIDEO TỪ MÁY TÍNH
   // ══════════════════════════════════════════════════════════
+  const handleFileUpload = async (
+    file: File,
+    targetType: "image" | "video" | "poster"
+  ) => {
+    if (!file) return;
+
+    // Kiểm tra định dạng cơ bản
+    const ext = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+    const validImageExts = [".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg", ".gif"];
+    const validVideoExts = [".mp4", ".webm", ".ogg", ".mov", ".m4v"];
+
+    if (targetType === "image" || targetType === "poster") {
+      if (!validImageExts.includes(ext)) {
+        alert("Vui lòng chọn file hình ảnh hợp lệ (.jpg, .jpeg, .png, .webp, .gif, .svg)");
+        return;
+      }
+    } else if (targetType === "video") {
+      if (!validVideoExts.includes(ext)) {
+        alert("Vui lòng chọn file video hợp lệ (.mp4, .webm, .ogg, .mov, .m4v)");
+        return;
+      }
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      alert("Dung lượng tệp vượt quá giới hạn 100MB của hệ thống.");
+      return;
+    }
+
+    try {
+      setIsUploadingMedia(true);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/v1/system-configs/upload-media", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.message || "Không thể tải tệp lên máy chủ");
+      }
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.message || "Tải tệp không thành công");
+      }
+
+      if (targetType === "video") {
+        setBannerForm((prev) => ({
+          ...prev,
+          mediaType: "video",
+          videoUrl: data.url,
+        }));
+        setUploadSuccessName(`Đã tải video: ${file.name}`);
+        showToast(`Đã tải video "${file.name}" lên máy chủ thành công!`);
+      } else if (targetType === "image") {
+        setBannerForm((prev) => ({
+          ...prev,
+          mediaType: "image",
+          backgroundImage: data.url,
+        }));
+        setUploadSuccessName(`Đã tải ảnh: ${file.name}`);
+        showToast(`Đã tải ảnh "${file.name}" lên máy chủ thành công!`);
+      } else if (targetType === "poster") {
+        setBannerForm((prev) => ({
+          ...prev,
+          backgroundImage: data.url,
+        }));
+        showToast(`Đã tải ảnh poster "${file.name}" thành công!`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Có lỗi xảy ra khi tải tệp lên";
+      alert(message);
+    } finally {
+      setIsUploadingMedia(false);
+      if (imageFileInputRef.current) imageFileInputRef.current.value = "";
+      if (videoFileInputRef.current) videoFileInputRef.current.value = "";
+      if (posterFileInputRef.current) posterFileInputRef.current.value = "";
+    }
+  };
+
   const handleOpenAddBanner = () => {
     setEditingBanner(null);
+    setUploadSuccessName(null);
     setBannerForm({
       title: "Bộ Sưu Tập Mới",
-      subtitle: "XU HƯỚNG 2024",
+      subtitle: "XU HƯỚNG 2026",
       description: "Đường nét tinh tế mang cảm hứng phong cách sống đương đại.",
+      mediaType: "image",
       backgroundImage: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80",
+      videoUrl: "",
       isActive: true,
       actions: [{ label: "Khám phá ngay", url: "/bo-suu-tap", isPrimary: true }],
     });
@@ -191,14 +426,27 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
 
   const handleOpenEditBanner = (banner: HeroBannerItem) => {
     setEditingBanner(banner);
-    setBannerForm({ ...banner, actions: [...banner.actions] });
+    setUploadSuccessName(null);
+    setBannerForm({
+      ...banner,
+      mediaType: banner.mediaType || (banner.videoUrl || /\.(mp4|webm|ogg)($|\?)/i.test(banner.backgroundImage || '') ? 'video' : 'image'),
+      actions: [...banner.actions],
+    });
     setBannerModalOpen(true);
   };
 
   const handleSaveBannerModal = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bannerForm.title || !bannerForm.backgroundImage) {
-      alert("Vui lòng nhập tiêu đề và link ảnh nền banner.");
+    if (!bannerForm.title) {
+      alert("Vui lòng nhập tiêu đề cho slide banner.");
+      return;
+    }
+    if (bannerForm.mediaType === "video" && !bannerForm.videoUrl && !bannerForm.backgroundImage) {
+      alert("Vui lòng nhập đường dẫn video (MP4/WebM) hoặc link ảnh poster dự phòng.");
+      return;
+    }
+    if (bannerForm.mediaType !== "video" && !bannerForm.backgroundImage) {
+      alert("Vui lòng nhập link ảnh nền banner.");
       return;
     }
 
@@ -212,7 +460,9 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
               title: bannerForm.title!,
               subtitle: bannerForm.subtitle || "",
               description: bannerForm.description || "",
-              backgroundImage: bannerForm.backgroundImage!,
+              backgroundImage: bannerForm.backgroundImage || bannerForm.videoUrl || "",
+              mediaType: bannerForm.mediaType || "image",
+              videoUrl: bannerForm.videoUrl || "",
               actions: bannerForm.actions || [{ label: "Xem chi tiết", url: "/products" }],
               isActive: bannerForm.isActive ?? true,
             }
@@ -224,7 +474,9 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
         title: bannerForm.title!,
         subtitle: bannerForm.subtitle || "",
         description: bannerForm.description || "",
-        backgroundImage: bannerForm.backgroundImage!,
+        backgroundImage: bannerForm.backgroundImage || bannerForm.videoUrl || "",
+        mediaType: bannerForm.mediaType || "image",
+        videoUrl: bannerForm.videoUrl || "",
         actions: bannerForm.actions || [{ label: "Xem chi tiết", url: "/products" }],
         isActive: bannerForm.isActive ?? true,
         order: banners.length + 1,
@@ -279,10 +531,10 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
   };
 
   const handleResetBannersDefault = () => {
-    if (window.confirm("Khôi phục toàn bộ Banner Hero về mặc định?")) {
+    if (window.confirm("Làm trống toàn bộ Banner Hero để thêm mới từ đầu?")) {
       const reset = clientCmsService.resetHeroBanners();
       setBanners(reset);
-      showToast("Đã khôi phục Banner Hero về mặc định.");
+      showToast("Đã làm trống danh sách Banner.");
     }
   };
 
@@ -296,10 +548,10 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
   };
 
   const handleResetPandoraDefault = () => {
-    if (window.confirm("Khôi phục cấu hình Pandora Suggestion về mặc định ban đầu?")) {
+    if (window.confirm("Làm trống cấu hình Pandora Suggestion?")) {
       const reset = clientCmsService.resetPandoraConfig();
       setPandoraConfig(reset);
-      showToast("Đã khôi phục Pandora Suggestion về mặc định.");
+      showToast("Đã làm trống cấu hình Pandora.");
     }
   };
 
@@ -411,11 +663,22 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
+                onClick={handleSyncCategoriesToMenu}
+                disabled={isSyncingDb}
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                title="Lấy danh mục sản phẩm từ Database backend tự động nạp vào Menu Header"
+              >
+                <Database size={14} className="text-emerald-600" />
+                <span>{isSyncingDb ? "Đang đồng bộ..." : "Đồng bộ từ Danh mục DB"}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleResetMenuDefault}
                 className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-stone-700 bg-white hover:bg-stone-100 border border-stone-300 rounded-lg transition-colors cursor-pointer"
               >
                 <RotateCcw size={14} />
-                <span>Khôi phục mặc định</span>
+                <span>Làm trống danh sách</span>
               </button>
 
               <button
@@ -435,11 +698,12 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
               <table className="w-full text-left text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-600 font-bold uppercase text-[11px] tracking-wider">
                   <tr>
-                    <th className="py-3 px-4 w-16 text-center">STT</th>
+                    <th className="py-3 px-4 w-14 text-center">STT</th>
                     <th className="py-3 px-4">Tên mục Menu</th>
                     <th className="py-3 px-4">Đường dẫn liên kết</th>
                     <th className="py-3 px-4">Kiểu hiển thị</th>
-                    <th className="py-3 px-4">Huy hiệu (Badge)</th>
+                    <th className="py-3 px-4">Menu con (Submenu)</th>
+                    <th className="py-3 px-4">Huy hiệu</th>
                     <th className="py-3 px-4 text-center">Hiển thị</th>
                     <th className="py-3 px-4 text-right">Thao tác</th>
                   </tr>
@@ -458,7 +722,9 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                       </td>
                       <td className="py-3.5 px-4">
                         <span className={`inline-block px-2.5 py-1 rounded-md text-[11px] font-bold ${
-                          item.kind === "link"
+                          item.kind === "dropdown"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : item.kind === "link"
                             ? "bg-gray-100 text-gray-700"
                             : item.kind === "products"
                             ? "bg-amber-100 text-amber-800"
@@ -466,11 +732,27 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                             ? "bg-blue-100 text-blue-800"
                             : "bg-purple-100 text-purple-800"
                         }`}>
+                          {item.kind === "dropdown" && "Menu thả xuống (Tùy biến)"}
                           {item.kind === "link" && "Liên kết thường"}
                           {item.kind === "products" && "MegaMenu Sản Phẩm"}
-                          {item.kind === "rooms" && "MegaMenu Không Gian Phòng"}
+                          {item.kind === "rooms" && "MegaMenu Phòng"}
                           {item.kind === "brands" && "MegaMenu Thương Hiệu"}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {item.children && item.children.length > 0 ? (
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              <Layers size={11} /> {item.children.length} mục con
+                            </span>
+                            <div className="text-[11px] text-gray-500 truncate max-w-[170px]" title={item.children.map(c => c.label).join(", ")}>
+                              {item.children.slice(0, 3).map(c => c.label).join(", ")}
+                              {item.children.length > 3 ? "..." : ""}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4">
                         {item.badge ? (
@@ -562,7 +844,7 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                 className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-stone-700 bg-white hover:bg-stone-100 border border-stone-300 rounded-lg transition-colors cursor-pointer"
               >
                 <RotateCcw size={14} />
-                <span>Khôi phục mặc định</span>
+                <span>Làm trống danh sách</span>
               </button>
 
               <button
@@ -607,6 +889,16 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                   <span className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-xs text-white text-[11px] font-mono">
                     Slide #{index + 1}
                   </span>
+
+                  {banner.mediaType === "video" || banner.videoUrl ? (
+                    <span className="absolute top-2 left-18 px-2 py-0.5 rounded-md bg-purple-600/90 backdrop-blur-xs text-white text-[11px] font-semibold">
+                      🎬 Video
+                    </span>
+                  ) : (
+                    <span className="absolute top-2 left-18 px-2 py-0.5 rounded-md bg-sky-600/90 backdrop-blur-xs text-white text-[11px] font-semibold">
+                      🖼️ Ảnh
+                    </span>
+                  )}
 
                   <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${
                     banner.isActive ? "bg-emerald-500 text-white" : "bg-gray-500 text-white"
@@ -709,7 +1001,7 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                   onClick={handleResetPandoraDefault}
                   className="px-3 py-1.5 text-xs font-semibold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 rounded-lg transition-colors cursor-pointer"
                 >
-                  Khôi phục mặc định
+                  Làm trống cấu hình
                 </button>
 
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -848,71 +1140,204 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
       )}
 
       {/* ══════════════════════════════════════════════════════════
-          MODAL 1: THÊM / SỬA MỤC MENU
+          MODAL 1: THÊM / SỬA MỤC MENU (HỖ TRỢ SUBMENU & ĐỒNG BỘ DB)
           ══════════════════════════════════════════════════════════ */}
       {menuModalOpen && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="w-full max-w-md bg-white rounded-2xl p-6 shadow-2xl border border-gray-200">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">
-              {editingMenuItem ? "Chỉnh sửa mục Menu" : "Thêm mục Menu mới"}
-            </h3>
+        <div className="fixed inset-0 z-100 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white rounded-2xl p-6 shadow-2xl border border-gray-200 my-8">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Menu size={18} className="text-[#B86B49]" />
+                <span>{editingMenuItem ? "Chỉnh sửa mục Menu" : "Thêm mục Menu mới"}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMenuModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 p-1 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <form onSubmit={handleSaveMenuModal} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Tên hiển thị trên Menu *
-                </label>
-                <input
-                  type="text"
-                  value={menuForm.label}
-                  onChange={(e) => setMenuForm({ ...menuForm, label: e.target.value })}
-                  placeholder="Ví dụ: Khuyến mãi Tết, Sofa Ý..."
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Tên hiển thị trên Menu *
+                  </label>
+                  <input
+                    type="text"
+                    value={menuForm.label}
+                    onChange={(e) => setMenuForm({ ...menuForm, label: e.target.value })}
+                    placeholder="Ví dụ: Sản phẩm, Khuyến mãi, Sofa..."
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Đường dẫn chính (URL / To) *
+                  </label>
+                  <input
+                    type="text"
+                    value={menuForm.to}
+                    onChange={(e) => setMenuForm({ ...menuForm, to: e.target.value })}
+                    placeholder="Ví dụ: /san-pham, /khuyen-mai..."
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
+                    required
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Đường dẫn (URL / To) *
-                </label>
-                <input
-                  type="text"
-                  value={menuForm.to}
-                  onChange={(e) => setMenuForm({ ...menuForm, to: e.target.value })}
-                  placeholder="Ví dụ: /products, /khuyen-mai..."
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Kiểu hiển thị Menu
+                  </label>
+                  <select
+                    value={menuForm.kind}
+                    onChange={(e) =>
+                      setMenuForm({
+                        ...menuForm,
+                        kind: e.target.value as ClientMenuItem["kind"],
+                      })
+                    }
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none bg-white font-medium"
+                  >
+                    <option value="products">MegaMenu Sản Phẩm (Lưới đa cột theo danh sách con bên dưới)</option>
+                    <option value="dropdown">Menu thả xuống danh sách dọc (Dropdown)</option>
+                    <option value="link">Liên kết thường (Chuyển trang trực tiếp)</option>
+                    <option value="rooms">MegaMenu Không Gian Phòng</option>
+                    <option value="brands">MegaMenu Thương Hiệu Hợp Tác</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Huy hiệu đính kèm (Badge - tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={menuForm.badge || ""}
+                    onChange={(e) => setMenuForm({ ...menuForm, badge: e.target.value })}
+                    placeholder="Ví dụ: Mới, Hot, Sale..."
+                    className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Kiểu menu
-                </label>
-                <select
-                  value={menuForm.kind}
-                  onChange={(e) => setMenuForm({ ...menuForm, kind: e.target.value as any })}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none bg-white"
-                >
-                  <option value="link">Liên kết thường (Chuyển trang trực tiếp)</option>
-                  <option value="products">MegaMenu Sản Phẩm (Sổ bảng phân loại sản phẩm)</option>
-                  <option value="rooms">MegaMenu Phòng (Sổ danh sách các phòng)</option>
-                  <option value="brands">MegaMenu Thương Hiệu (Sổ các hãng hợp tác)</option>
-                </select>
-              </div>
+              {/* ── KHỐI QUẢN LÝ MENU CON (SUBMENU ITEMS - PHƯƠNG ÁN 2 & 3) ── */}
+              <div className="pt-3 border-t border-gray-200">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2.5">
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers size={14} className="text-[#B86B49]" />
+                      <span>Danh sách Menu con ({menuFormSubItems.length} mục)</span>
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      Tự do thêm bớt, sắp xếp các mục thả xuống hoặc nạp tự động từ Danh mục sản phẩm Database
+                    </p>
+                  </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Huy hiệu đính kèm (Badge - tùy chọn)
-                </label>
-                <input
-                  type="text"
-                  value={menuForm.badge || ""}
-                  onChange={(e) => setMenuForm({ ...menuForm, badge: e.target.value })}
-                  placeholder="Ví dụ: Mới, Hot, Sale..."
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none"
-                />
+                  <button
+                    type="button"
+                    onClick={handleLoadDbCategoriesIntoModal}
+                    disabled={isSyncingDb}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                    title="Nạp danh sách danh mục sản phẩm từ backend vào mục con"
+                  >
+                    <Database size={13} className="text-emerald-600" />
+                    <span>{isSyncingDb ? "Đang nạp..." : "Nạp từ Danh mục DB"}</span>
+                  </button>
+                </div>
+
+                {/* Bảng danh sách mục con */}
+                {menuFormSubItems.length > 0 ? (
+                  <div className="border border-gray-200 rounded-xl overflow-hidden mb-3 bg-gray-50/50 max-h-52 overflow-y-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-100 border-b border-gray-200 text-gray-600 font-semibold text-[11px]">
+                        <tr>
+                          <th className="py-2 px-3 w-10 text-center">STT</th>
+                          <th className="py-2 px-3">Tên mục con</th>
+                          <th className="py-2 px-3">Đường dẫn liên kết</th>
+                          <th className="py-2 px-3 text-right">Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200 bg-white">
+                        {menuFormSubItems.map((sub, idx) => (
+                          <tr key={sub.id} className="hover:bg-amber-50/40">
+                            <td className="py-2 px-3 text-center text-gray-400 font-bold">{idx + 1}</td>
+                            <td className="py-2 px-3 font-semibold text-gray-800">{sub.label}</td>
+                            <td className="py-2 px-3 font-mono text-[11px] text-blue-600 truncate max-w-[200px]">{sub.to}</td>
+                            <td className="py-2 px-3 text-right">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveSubItem(idx, "up")}
+                                  disabled={idx === 0}
+                                  className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-20 cursor-pointer"
+                                  title="Lên"
+                                >
+                                  <ArrowUp size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMoveSubItem(idx, "down")}
+                                  disabled={idx === menuFormSubItems.length - 1}
+                                  className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-20 cursor-pointer"
+                                  title="Xuống"
+                                >
+                                  <ArrowDown size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSubItem(sub.id)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded cursor-pointer ml-1"
+                                  title="Xóa mục con này"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500 bg-gray-50 mb-3">
+                    Chưa có mục menu con nào. Bấm <strong>"Nạp từ Danh mục DB"</strong> hoặc thêm thủ công bên dưới.
+                  </div>
+                )}
+
+                {/* Form thêm mục con thủ công */}
+                <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl space-y-2">
+                  <span className="block text-[11px] font-bold text-stone-700">Thêm mục con thủ công:</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Tên mục (Ví dụ: Sofa da Ý)"
+                      value={newSubLabel}
+                      onChange={(e) => setNewSubLabel(e.target.value)}
+                      className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Đường dẫn (/san-pham?category=sofa)"
+                      value={newSubTo}
+                      onChange={(e) => setNewSubTo(e.target.value)}
+                      className="sm:col-span-2 px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddSubItem}
+                      className="sm:col-span-1 px-3 py-1.5 bg-[#B86B49] hover:bg-[#9E5738] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1"
+                    >
+                      <Plus size={13} /> Thêm
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 pt-2">
@@ -938,7 +1363,7 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-bold text-white bg-[#B86B49] hover:bg-[#9E5738] rounded-lg transition-colors cursor-pointer"
+                  className="px-4 py-2 text-xs font-bold text-white bg-[#B86B49] hover:bg-[#9E5738] rounded-lg transition-colors cursor-pointer shadow-sm"
                 >
                   {editingMenuItem ? "Cập nhật Menu" : "Thêm vào Menu"}
                 </button>
@@ -999,28 +1424,205 @@ export default function ClientContentView({ currentRole: _currentRole }: ClientC
                 />
               </div>
 
+              {/* Loại Media: Hình ảnh hoặc Video */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Đường dẫn ảnh nền (Image URL) *
+                <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                  Định dạng Media của Banner
                 </label>
-                <input
-                  type="text"
-                  value={bannerForm.backgroundImage}
-                  onChange={(e) => setBannerForm({ ...bannerForm, backgroundImage: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
-                  required
-                />
-                {bannerForm.backgroundImage && (
-                  <div className="mt-2 h-24 rounded-lg overflow-hidden border border-gray-200">
-                    <img
-                      src={bannerForm.backgroundImage}
-                      alt="Preview"
-                      className="w-full h-full object-cover"
+                <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-lg text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setBannerForm({ ...bannerForm, mediaType: "image" })}
+                    className={`py-1.5 px-3 rounded-md transition-all text-center ${
+                      (bannerForm.mediaType || "image") === "image"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    🖼️ Hình ảnh (Image)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBannerForm({ ...bannerForm, mediaType: "video" })}
+                    className={`py-1.5 px-3 rounded-md transition-all text-center ${
+                      bannerForm.mediaType === "video"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    🎬 Video nền (MP4 / WebM)
+                  </button>
+                </div>
+              </div>
+
+              {bannerForm.mediaType === "video" ? (
+                <div className="space-y-3 p-3 bg-amber-50/50 rounded-xl border border-amber-200/60">
+                  {/* Upload video từ máy tính */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Tải video từ thiết bị của bạn
+                    </label>
+                    <input
+                      type="file"
+                      ref={videoFileInputRef}
+                      accept="video/mp4,video/webm,video/ogg,video/quicktime"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, "video");
+                      }}
+                    />
+                    <div className="border border-dashed border-[#B86B49]/50 bg-white hover:bg-amber-50/60 rounded-xl p-3 text-center transition-all">
+                      <button
+                        type="button"
+                        onClick={() => videoFileInputRef.current?.click()}
+                        disabled={isUploadingMedia}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#B86B49] hover:bg-[#9E5738] rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {isUploadingMedia ? <Loader2 size={13} className="animate-spin" /> : <Film size={13} />}
+                        {isUploadingMedia ? "Đang tải video lên server..." : "Chọn file video từ máy tính"}
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-1">Hỗ trợ MP4, WebM dung lượng tối đa 100MB</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Hoặc dán đường dẫn Video trực tiếp *
+                    </label>
+                    <input
+                      type="text"
+                      value={bannerForm.videoUrl || ""}
+                      onChange={(e) => setBannerForm({ ...bannerForm, videoUrl: e.target.value })}
+                      placeholder="https://.../video.mp4 hoặc /uploads/banners/videos/..."
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
+                      required
                     />
                   </div>
-                )}
-              </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-gray-700">
+                        Ảnh Poster đại diện (hiển thị khi video tải)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => posterFileInputRef.current?.click()}
+                        disabled={isUploadingMedia}
+                        className="text-[11px] font-semibold text-[#B86B49] hover:underline cursor-pointer flex items-center gap-1"
+                      >
+                        <Upload size={11} /> Tải poster từ máy
+                      </button>
+                      <input
+                        type="file"
+                        ref={posterFileInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file, "poster");
+                        }}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={bannerForm.backgroundImage || ""}
+                      onChange={(e) => setBannerForm({ ...bannerForm, backgroundImage: e.target.value })}
+                      placeholder="https://images.unsplash.com/... hoặc /uploads/banners/images/..."
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
+                    />
+                  </div>
+
+                  {uploadSuccessName && (
+                    <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                      <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                      <span className="truncate">{uploadSuccessName}</span>
+                    </div>
+                  )}
+
+                  {bannerForm.videoUrl && (
+                    <div className="mt-2 h-28 rounded-lg overflow-hidden border border-gray-300 bg-black relative">
+                      <video
+                        src={bannerForm.videoUrl}
+                        poster={bannerForm.backgroundImage}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                      />
+                      <span className="absolute bottom-1.5 left-1.5 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded">
+                        Xem trước Video
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Upload ảnh từ máy tính */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Tải ảnh nền từ thiết bị của bạn
+                    </label>
+                    <input
+                      type="file"
+                      ref={imageFileInputRef}
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, "image");
+                      }}
+                    />
+                    <div className="border border-dashed border-[#B86B49]/50 bg-amber-50/30 hover:bg-amber-100/40 rounded-xl p-3 text-center transition-all">
+                      <button
+                        type="button"
+                        onClick={() => imageFileInputRef.current?.click()}
+                        disabled={isUploadingMedia}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#B86B49] hover:bg-[#9E5738] rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {isUploadingMedia ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                        {isUploadingMedia ? "Đang tải ảnh lên server..." : "Chọn ảnh từ máy tính (JPG, PNG, WEBP, GIF)"}
+                      </button>
+                      <p className="text-[11px] text-gray-500 mt-1">Dung lượng tối đa 100MB, lưu trữ an toàn trên server</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Hoặc dán đường dẫn ảnh nền (Image URL) *
+                    </label>
+                    <input
+                      type="text"
+                      value={bannerForm.backgroundImage || ""}
+                      onChange={(e) => setBannerForm({ ...bannerForm, backgroundImage: e.target.value })}
+                      placeholder="https://images.unsplash.com/... hoặc /uploads/banners/images/..."
+                      className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none font-mono"
+                      required
+                    />
+                  </div>
+
+                  {uploadSuccessName && (
+                    <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1.5">
+                      <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                      <span className="truncate">{uploadSuccessName}</span>
+                    </div>
+                  )}
+
+                  {bannerForm.backgroundImage && (
+                    <div className="mt-2 h-28 rounded-lg overflow-hidden border border-gray-200 relative bg-gray-100">
+                      <img
+                        src={bannerForm.backgroundImage}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
+                      <span className="absolute bottom-1.5 left-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">
+                        Xem trước Ảnh
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Nút hành động 1 */}
               <div className="grid grid-cols-2 gap-2">

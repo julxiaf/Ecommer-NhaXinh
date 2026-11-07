@@ -7,6 +7,10 @@ import {
   X,
   Search,
   RotateCcw,
+  FolderX,
+  Home,
+  ShoppingBag,
+  MessageCircle,
 } from "lucide-react";
 import Header from "../components/Headers";
 import Footer from "../components/Footer";
@@ -35,6 +39,8 @@ export default function ProductListPage({
 
   const {
     isSpecialOfferRoute,
+    isNewProductRoute,
+    isRoomRoute,
     loading,
     sortBy,
     setSortBy,
@@ -76,6 +82,22 @@ export default function ProductListPage({
           <ChevronRight size={14} />
           {isSpecialOfferRoute ? (
             <span className="current">Ưu Đãi Đặc Biệt</span>
+          ) : isNewProductRoute ? (
+            <>
+              <Link to="/san-pham">Sản phẩm</Link>
+              <ChevronRight size={14} />
+              <span className="current">Sản phẩm mới</span>
+            </>
+          ) : isRoomRoute ? (
+            <>
+              <Link to="/phong">Không gian phòng</Link>
+              {categoryFromSlug && (
+                <>
+                  <ChevronRight size={14} />
+                  <span className="current">{categoryFromSlug}</span>
+                </>
+              )}
+            </>
           ) : categoryFromSlug ? (
             <>
               <Link to="/san-pham">Sản phẩm</Link>
@@ -83,7 +105,7 @@ export default function ProductListPage({
               <span className="current">{categoryFromSlug}</span>
             </>
           ) : (
-            <span className="current">Sản phẩm</span>
+            <span className="current">Tất cả sản phẩm</span>
           )}
         </nav>
 
@@ -92,7 +114,9 @@ export default function ProductListPage({
           <div>
             <h1 className="page-title">{pageTitle}</h1>
             <p className="page-subtitle" style={{ marginBottom: 0 }}>
-              {filtered.length} sản phẩm
+              {isNewProductRoute
+                ? `Tuyển tập ${filtered.length} thiết kế nội thất mới nhất mang phong cách thanh lịch hiện đại từ Nhà Xinh`
+                : `${filtered.length} sản phẩm`}
             </p>
           </div>
 
@@ -166,7 +190,9 @@ export default function ProductListPage({
 
             {/* Category filter */}
             <div className="pl-filter-group">
-              <h4 className="pl-filter-title">Danh mục không gian</h4>
+              <h4 className="pl-filter-title">
+                {isRoomRoute ? "Danh mục không gian" : "Danh mục sản phẩm"}
+              </h4>
               <ul className="pl-filter-list">
                 {categories.map((cat) => (
                   <li key={cat}>
@@ -175,7 +201,11 @@ export default function ProductListPage({
                       className={`pl-filter-item ${activeCat === cat ? "active" : ""}`}
                       onClick={() => setSelectedCat(cat)}
                     >
-                      {cat === "all" ? "Tất cả danh mục" : cat}
+                      {cat === "all"
+                        ? isRoomRoute
+                          ? "Tất cả không gian"
+                          : "Tất cả sản phẩm"
+                        : cat}
                     </button>
                   </li>
                 ))}
@@ -267,16 +297,81 @@ export default function ProductListPage({
                 <p>Đang tải sản phẩm...</p>
               </div>
             ) : filtered.length === 0 ? (
-              <div className="empty-state">
-                <h2>Không tìm thấy sản phẩm</h2>
-                <p>Hãy thử thay đổi bộ lọc để xem thêm sản phẩm</p>
-                <button
-                  type="button"
-                  className="btn-outline"
-                  onClick={handleResetFilters}
-                >
-                  Xóa bộ lọc
-                </button>
+              <div className="py-12 px-6 sm:px-10 rounded-2xl bg-white border border-stone-200/90 text-center shadow-xs my-4 max-w-2xl mx-auto">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-amber-50 text-[#b86b49] mb-5 border border-amber-200/60">
+                  <FolderX size={40} className="stroke-[1.5]" />
+                </div>
+
+                <h2 className="text-xl sm:text-2xl font-serif font-bold text-stone-900 mb-2">
+                  {categoryFromSlug || activeCat !== "all"
+                    ? `Không có sản phẩm nào thuộc danh mục "${pageTitle}"`
+                    : isSpecialOfferRoute
+                    ? "Hiện chưa có sản phẩm ưu đãi trong mục này"
+                    : isNewProductRoute
+                    ? "Chưa có sản phẩm mới nào được niêm yết"
+                    : "Không tìm thấy sản phẩm phù hợp"}
+                </h2>
+
+                <p className="text-stone-600 text-xs sm:text-sm leading-relaxed max-w-md mx-auto mb-6 font-light">
+                  {categoryFromSlug || activeCat !== "all"
+                    ? "Hiện tại danh mục này chưa có sản phẩm nào hoặc phân loại đang được cập nhật lại. Quý khách vui lòng khám phá các danh mục khác hoặc liên hệ để được tư vấn kiểm tra kho hàng."
+                    : "Không có sản phẩm nào khớp với tiêu chí tìm kiếm hoặc bộ lọc hiện tại. Quý khách có thể thử đặt lại bộ lọc hoặc tìm kiếm với từ khóa khác."}
+                </p>
+
+                {/* Primary action buttons */}
+                <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
+                  <Link
+                    to="/san-pham"
+                    onClick={handleResetFilters}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#b86b49] hover:bg-[#a05a3b] text-white font-semibold text-xs sm:text-sm transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <ShoppingBag size={15} />
+                    <span>Xem tất cả sản phẩm</span>
+                  </Link>
+
+                  <Link
+                    to="/"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs sm:text-sm transition-all cursor-pointer"
+                  >
+                    <Home size={15} />
+                    <span>Về trang chủ</span>
+                  </Link>
+
+                  <a
+                    href="https://zalo.me/0974933486"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#0068ff] hover:bg-[#0057d9] text-white font-semibold text-xs sm:text-sm transition-all shadow-2xs"
+                  >
+                    <MessageCircle size={15} />
+                    <span>Tư vấn qua Zalo</span>
+                  </a>
+                </div>
+
+                {/* Quick suggestions */}
+                <div className="pt-6 border-t border-stone-100">
+                  <p className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-3">
+                    Gợi ý các danh mục sản phẩm nổi bật:
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {[
+                      { label: "Sofa", to: "/danh-muc/sofa" },
+                      { label: "Bàn", to: "/danh-muc/ban" },
+                      { label: "Ghế", to: "/danh-muc/ghe" },
+                      { label: "Giường & Nệm", to: "/danh-muc/giuong" },
+                      { label: "Tủ & Kệ", to: "/danh-muc/tu-va-ke" },
+                      { label: "Đèn & Thảm", to: "/danh-muc/den" },
+                    ].map((c) => (
+                      <Link
+                        key={c.to}
+                        to={c.to}
+                        className="px-3 py-1.5 rounded-lg bg-stone-50 hover:bg-amber-50 hover:text-[#b86b49] border border-stone-200 text-stone-700 text-xs font-medium transition-colors"
+                      >
+                        {c.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               </div>
             ) : (
               <>

@@ -2,11 +2,12 @@ import { Link } from "react-router-dom";
 import {
   ChevronRight, CheckCircle2, CreditCard,
   Banknote, Copy, Check, ShoppingBag, AlertCircle, Lock,
-  Landmark, FileText
+  Landmark
 } from "lucide-react";
 import Header from "../components/Headers";
 import Footer from "../components/Footer";
 import { useCheckout } from "../hooks/useCheckout";
+import { DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
 import "./pages.css";
 import "./checkout.css";
 import { vnd } from "../util/Constain";
@@ -41,6 +42,8 @@ export default function CheckoutPage() {
     appliedDiscount,
     setAppliedDiscount,
     couponError,
+    availableCoupons,
+    applyCouponCode,
     agreeTerms,
     setAgreeTerms,
     createAccount,
@@ -56,6 +59,9 @@ export default function CheckoutPage() {
     handleApplyCoupon,
     handleSubmitOrder,
     copyOrderCode,
+    provinces,
+    communes,
+    isLoadingAddress,
   } = useCheckout();
 
   const totalQuantity = cart.reduce((s, i) => s + (i.qty || i.quantity || 1), 0);
@@ -268,11 +274,15 @@ export default function CheckoutPage() {
               )}
 
               <div className="order-success-actions">
-                <Link to="/san-pham" className="btn-primary">
-                  Tiếp tục mua sắm
+                <Link
+                  to={`/tai-khoan?tab=orders&orderCode=${encodeURIComponent(submittedOrder.orderCode)}`}
+                  className="btn-primary"
+                  style={{ textDecoration: "none" }}
+                >
+                  Xem chi tiết đơn hàng
                 </Link>
-                <Link to="/" className="btn-secondary">
-                  Về trang chủ
+                <Link to="/san-pham" className="btn-secondary" style={{ textDecoration: "none" }}>
+                  Tiếp tục mua sắm
                 </Link>
               </div>
             </div>
@@ -314,7 +324,7 @@ export default function CheckoutPage() {
                 <div className="checkout-main">
                   {/* 1. ĐỊA CHỈ GIAO HÀNG */}
                   <div className="checkout-section">
-                    <h2 className="checkout-section-header">Địa chỉ giao hàng</h2>
+                    <h2 className="checkout-section-header">ĐỊA CHỈ GIAO HÀNG</h2>
 
                     {/* Họ và tên */}
                     <div className="form-field full">
@@ -347,18 +357,16 @@ export default function CheckoutPage() {
                           Địa chỉ email (tuỳ chọn)
                           {isCustomer && (
                             <span style={{ fontSize: 11, color: "#b86b49", marginLeft: 6, fontWeight: 500 }}>
-                              <Lock size={10} style={{ display: "inline", verticalAlign: "middle" }} /> Đồng bộ tài khoản
+                              <Lock size={10} style={{ display: "inline", verticalAlign: "middle" }} /> Đã đồng bộ
                             </span>
                           )}
                         </label>
                         <input
                           id="em"
                           type="email"
-                          placeholder="Địa chỉ email nhận hóa đơn"
+                          placeholder="Địa chỉ email nhận hóa đơn (VD: anhlong70@gmail.com)"
                           value={email}
-                          readOnly={isCustomer}
                           onChange={(e) => setEmail(e.target.value)}
-                          style={isCustomer ? { backgroundColor: "#f8f9fa", color: "#64748b", cursor: "not-allowed" } : {}}
                         />
                       </div>
                     </div>
@@ -366,60 +374,74 @@ export default function CheckoutPage() {
                     {/* Tỉnh / Thành phố & Phường / Xã */}
                     <div className="form-row">
                       <div className="form-field">
-                        <label htmlFor="city">Tỉnh / Thành phố <span className="req">*</span></label>
-                        <select id="city" value={city} onChange={(e) => setCity(e.target.value)}>
-                          <option value="Thành phố Hà Nội">Thành phố Hà Nội</option>
-                          <option value="Thành phố Hồ Chí Minh">Thành phố Hồ Chí Minh</option>
-                          <option value="Thành phố Đà Nẵng">Thành phố Đà Nẵng</option>
-                          <option value="Tỉnh Bình Dương">Tỉnh Bình Dương</option>
-                          <option value="Tỉnh Đồng Nai">Tỉnh Đồng Nai</option>
-                          <option value="Thành phố Cần Thơ">Thành phố Cần Thơ</option>
-                          <option value="Thành phố Hải Phòng">Thành phố Hải Phòng</option>
+                        <label htmlFor="city">
+                          Tỉnh / Thành phố <span className="req">*</span>
+                          {isLoadingAddress && (
+                            <span style={{ fontSize: 11, color: "#b86b49", marginLeft: 6 }}>
+                              (Đang tải...)
+                            </span>
+                          )}
+                        </label>
+                        <select
+                          id="city"
+                          value={city}
+                          onChange={(e) => setCity(e.target.value)}
+                          required
+                        >
+                          {provinces && provinces.length > 0 ? (
+                            provinces.map((p: any) => {
+                              const val = p.code || p.id || p.name;
+                              return (
+                                <option key={val} value={val}>
+                                  {p.name || val}
+                                </option>
+                              );
+                            })
+                          ) : (
+                            <>
+                              <option value="Thành phố Hà Nội">Thành phố Hà Nội</option>
+                              <option value="Thành phố Hồ Chí Minh">Thành phố Hồ Chí Minh</option>
+                              <option value="Thành phố Đà Nẵng">Thành phố Đà Nẵng</option>
+                            </>
+                          )}
                         </select>
                       </div>
 
                       <div className="form-field">
-                        <label htmlFor="district">Phường / Xã / Quận <span className="req">*</span></label>
-                        <select id="district" value={district} onChange={(e) => setDistrict(e.target.value)}>
-                          {city.includes("Hà Nội") ? (
-                            <>
-                              <option value="Phường Hoàng Mai">Phường Hoàng Mai</option>
-                              <option value="Quận Cầu Giấy">Quận Cầu Giấy</option>
-                              <option value="Quận Hoàn Kiếm">Quận Hoàn Kiếm</option>
-                              <option value="Quận Ba Đình">Quận Ba Đình</option>
-                              <option value="Quận Đống Đa">Quận Đống Đa</option>
-                              <option value="Quận Tây Hồ">Quận Tây Hồ</option>
-                              <option value="Quận Nam Từ Liêm">Quận Nam Từ Liêm</option>
-                            </>
-                          ) : city.includes("Đà Nẵng") ? (
-                            <>
-                              <option value="Quận Hải Châu">Quận Hải Châu</option>
-                              <option value="Quận Thanh Khê">Quận Thanh Khê</option>
-                              <option value="Quận Sơn Trà">Quận Sơn Trà</option>
-                              <option value="Quận Ngũ Hành Sơn">Quận Ngũ Hành Sơn</option>
-                            </>
+                        <label htmlFor="district">
+                          Phường / Xã <span className="req">*</span>
+                        </label>
+                        <select
+                          id="district"
+                          value={district}
+                          onChange={(e) => setDistrict(e.target.value)}
+                          required
+                        >
+                          {communes && communes.length > 0 ? (
+                            communes.map((c: any) => {
+                              const val = c.code || c.id || c.name;
+                              return (
+                                <option key={val} value={val}>
+                                  {c.name || val}
+                                </option>
+                              );
+                            })
                           ) : (
-                            <>
-                              <option value="Quận 1">Quận 1</option>
-                              <option value="TP. Thủ Đức (Quận 2)">TP. Thủ Đức (Quận 2)</option>
-                              <option value="Quận 3">Quận 3</option>
-                              <option value="Quận 7">Quận 7</option>
-                              <option value="Quận Bình Thạnh">Quận Bình Thạnh</option>
-                              <option value="Quận Phú Nhuận">Quận Phú Nhuận</option>
-                              <option value="Quận Tân Bình">Quận Tân Bình</option>
-                            </>
+                            <option value={district || "Phường Hoàng Mai"}>
+                              {district || "Đang tải dữ liệu phường/xã..."}
+                            </option>
                           )}
                         </select>
                       </div>
                     </div>
 
-                    {/* Địa chỉ cụ thể */}
+                    {/* Địa chỉ */}
                     <div className="form-field full">
-                      <label htmlFor="addr">Địa chỉ cụ thể (Số nhà, tên đường, căn hộ) <span className="req">*</span></label>
+                      <label htmlFor="addr">Địa chỉ <span className="req">*</span></label>
                       <input
                         id="addr"
                         type="text"
-                        placeholder="Ví dụ: 560 Giải Phóng, Phường Giáp Bát"
+                        placeholder="Số nhà, tên đường, tòa nhà/căn hộ"
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
                         required
@@ -434,29 +456,29 @@ export default function CheckoutPage() {
                           checked={createAccount}
                           onChange={(e) => setCreateAccount(e.target.checked)}
                         />
-                        <span>Tạo tài khoản thành viên để theo dõi đơn hàng & tích luỹ điểm?</span>
+                        <span>Create an account? (Tạo tài khoản thành viên để theo dõi đơn hàng)</span>
                       </label>
                     )}
                   </div>
 
                   {/* 2. THÔNG TIN THÊM */}
                   <div className="checkout-section">
-                    <h2 className="checkout-section-header">Thông tin thêm</h2>
+                    <h2 className="checkout-section-header">THÔNG TIN THÊM</h2>
                     <div className="form-field full">
                       <label htmlFor="note">Lưu ý cho đơn hàng (tuỳ chọn)</label>
                       <textarea
                         id="note"
                         rows={3}
-                        placeholder="Viết các lưu ý cho đơn hàng của bạn, ví dụ: lưu ý đặc biệt khi vận chuyển, thang máy chung cư, giờ nhận hàng phù hợp."
+                        placeholder="Viết các lưu ý cho đơn hàng của bạn, ví dụ: lưu ý đặc biệt khi vận chuyển."
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
                       />
                     </div>
                   </div>
 
-                  {/* 3. PHƯƠNG THỨC THANH TOÁN (Theo phong cách Card đối xứng trong ảnh mẫu) */}
+                  {/* 3. PHƯƠNG THỨC THANH TOÁN */}
                   <div className="checkout-section">
-                    <h2 className="checkout-section-header">Phương thức thanh toán</h2>
+                    <h2 className="checkout-section-header">PHƯƠNG THỨC THANH TOÁN</h2>
 
                     <div className="payment-cards-grid">
                       {/* Thẻ 1: Chuyển khoản ngân hàng */}
@@ -464,6 +486,11 @@ export default function CheckoutPage() {
                         className={`payment-card-tab ${paymentMethod === "vietqr" ? "selected" : ""}`}
                         onClick={() => setPaymentMethod("vietqr")}
                       >
+                        {paymentMethod === "vietqr" && (
+                          <div className="payment-card-badge-check">
+                            <Check size={11} strokeWidth={3} />
+                          </div>
+                        )}
                         <div className="payment-card-tab-icon">
                           <Landmark size={20} />
                         </div>
@@ -475,6 +502,11 @@ export default function CheckoutPage() {
                         className={`payment-card-tab ${paymentMethod === "cod" ? "selected" : ""}`}
                         onClick={() => setPaymentMethod("cod")}
                       >
+                        {paymentMethod === "cod" && (
+                          <div className="payment-card-badge-check">
+                            <Check size={11} strokeWidth={3} />
+                          </div>
+                        )}
                         <div className="payment-card-tab-icon">
                           <Banknote size={20} />
                         </div>
@@ -486,25 +518,28 @@ export default function CheckoutPage() {
                         className={`payment-card-tab ${paymentMethod === "vnpay" ? "selected" : ""}`}
                         onClick={() => setPaymentMethod("vnpay")}
                       >
+                        {paymentMethod === "vnpay" && (
+                          <div className="payment-card-badge-check">
+                            <Check size={11} strokeWidth={3} />
+                          </div>
+                        )}
                         <div className="payment-card-tab-icon">
                           <CreditCard size={20} />
                         </div>
-                        <span className="payment-card-tab-label">Thanh toán qua VNPAY / Thẻ</span>
+                        <span className="payment-card-tab-label">Thẻ tín dụng / VNPAY</span>
                       </div>
                     </div>
 
                     {/* Chi tiết tài khoản ngân hàng khi chọn "Chuyển khoản ngân hàng" (chuẩn như ảnh) */}
                     {paymentMethod === "vietqr" && (
-                      <div className="bank-info-box">
-                        <div className="bank-info-header">
-                          <Landmark size={18} className="text-[#b86b49]" />
-                          <span>Ngân hàng Vietcombank</span>
-                        </div>
-                        <div className="bank-info-row">
-                          Số tài khoản : <span className="bank-account-num">0071000745809</span>
+                      <div className="bank-info-clean">
+                        <div className="bank-line-title">Ngân hàng Vietcombank</div>
+                        <div className="bank-line-row">
+                          <span>Số tài khoản : </span>
+                          <strong className="bank-num-text">0071000745809</strong>
                           <button
                             type="button"
-                            className="copy-btn"
+                            className="bank-copy-pill"
                             onClick={() => {
                               navigator.clipboard.writeText("0071000745809");
                               alert("Đã sao chép số tài khoản Vietcombank: 0071000745809");
@@ -513,80 +548,66 @@ export default function CheckoutPage() {
                             <Copy size={11} /> Sao chép
                           </button>
                         </div>
-                        <div className="bank-info-row">
-                          Tên chủ tài khoản:
-                          <strong style={{ display: "block", color: "#1a1714", marginTop: 2 }}>
-                            CT CP NOI THAT AKA VIETCOMBANK – CHI NHÁNH TP.HCM.
-                          </strong>
+                        <div className="bank-line-row">Tên chủ tài khoản:</div>
+                        <div className="bank-holder-strong">
+                          CT CP NOI THAT AKA VIETCOMBANK – CHI NHÁNH TP.HCM.
                         </div>
-                        <p style={{ margin: "10px 0 0", fontSize: 12, color: "#777", borderTop: "1px dashed #e2dbd0", paddingTop: 8 }}>
-                          💡 Sau khi bấm <strong>ĐẶT MUA</strong>, hệ thống sẽ cấp mã đơn hàng riêng để quý khách điền vào nội dung chuyển khoản hoặc quét mã QR tự động.
-                        </p>
                       </div>
                     )}
 
                     {paymentMethod === "cod" && (
-                      <div className="bank-info-box" style={{ borderLeftColor: "#1a1714" }}>
-                        <div className="bank-info-header">
-                          <Banknote size={18} />
-                          <span>Thanh toán tiền mặt khi nhận hàng (COD)</span>
-                        </div>
-                        <p style={{ margin: 0, fontSize: 13, color: "#555" }}>
-                          Quý khách kiểm tra sản phẩm nội thất hoàn thiện và thanh toán tiền mặt trực tiếp cho nhân viên kỹ thuật giao lắp Nhà Xinh tại nhà.
+                      <div className="bank-info-clean">
+                        <div className="bank-line-title">Thanh toán tiền mặt khi nhận hàng (COD)</div>
+                        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#666", lineHeight: 1.6 }}>
+                          Quý khách kiểm tra sản phẩm nội thất và thanh toán trực tiếp cho nhân viên kỹ thuật giao nhận của Nhà Xinh.
                         </p>
                       </div>
                     )}
 
                     {paymentMethod === "vnpay" && (
-                      <div className="bank-info-box" style={{ borderLeftColor: "#0284c7" }}>
-                        <div className="bank-info-header">
-                          <CreditCard size={18} className="text-[#0284c7]" />
-                          <span>Cổng thanh toán điện tử VNPAY</span>
-                        </div>
-                        <p style={{ margin: 0, fontSize: 13, color: "#555" }}>
-                          Hỗ trợ thanh toán nhanh bằng ứng dụng Mobile Banking quét VNPAY-QR, Thẻ ATM 40+ ngân hàng nội địa hoặc thẻ quốc tế Visa, Master, JCB an toàn tuyệt đối.
+                      <div className="bank-info-clean">
+                        <div className="bank-line-title">Cổng thanh toán điện tử VNPAY-QR / Thẻ Quốc tế</div>
+                        <p style={{ margin: "4px 0 0", fontSize: 13, color: "#666", lineHeight: 1.6 }}>
+                          Sau khi bấm Đặt Mua, quý khách sẽ được chuyển hướng tới cổng VNPAY để quét mã QR hoặc thanh toán thẻ Visa / Master / JCB an toàn.
                         </p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* ── Cột Phải: Tóm tắt đơn hàng (Order Summary Sidebar) ── */}
+                {/* ── Cột Phải: Tóm tắt đơn hàng (Order Summary Sidebar chuẩn theo hình ảnh mẫu) ── */}
                 <aside className="checkout-summary-card">
                   <h3 className="checkout-summary-title">Tóm tắt đơn hàng</h3>
 
                   {/* Thành tiền */}
                   <div className="summary-line-item subtotal">
                     <span className="label-bold">Thành tiền</span>
-                    <strong style={{ fontSize: "14px", color: "#1a1714" }}>{vnd(cartTotal)}</strong>
+                    <span className="val-amount">{vnd(cartTotal)}</span>
                   </div>
 
-                  {/* Vận chuyển */}
-                  <div className="summary-line-item">
-                    <span className="label-bold">Vận chuyển</span>
+                  {/* VẬN CHUYỂN */}
+                  <div className="summary-line-item shipping">
+                    <span className="label-bold">VẬN CHUYỂN</span>
                     <div className="shipping-desc">
-                      Giao hàng & Lắp đặt tận nhà Nhà Xinh
-                      <div style={{ color: shippingFee === 0 ? "#16a34a" : "#1a1714", fontWeight: 700, marginTop: 2 }}>
-                        {shippingFee === 0 ? "Miễn phí (Đơn từ 5.000.000 đ)" : vnd(shippingFee)}
-                      </div>
+                      {shippingFee === 0 ? "Miễn phí giao hàng & lắp đặt tận nơi" : vnd(shippingFee)}
                     </div>
                   </div>
 
                   {/* Giảm giá (nếu có) */}
                   {discountAmount > 0 && (
-                    <div className="summary-line-item" style={{ color: "#dc2626" }}>
+                    <div className="summary-line-item discount">
                       <span className="label-bold" style={{ color: "#dc2626" }}>Giảm giá</span>
-                      <strong>-{vnd(discountAmount)}</strong>
+                      <strong style={{ color: "#dc2626" }}>-{vnd(discountAmount)}</strong>
                     </div>
                   )}
 
-                  {/* Tổng cộng */}
+                  {/* TỔNG CỘNG */}
                   <div className="summary-line-item total-line">
-                    <span className="total-label">Tổng cộng</span>
+                    <span className="total-label">TỔNG CỘNG</span>
                     <span className="total-amount">{vnd(finalTotal)}</span>
                   </div>
 
-                  {/* Danh sách sản phẩm */}
+                  {/* Sản phẩm */}
                   <div className="summary-products-header">
                     <span>Sản phẩm</span>
                     <span className="summary-products-badge">{totalQuantity}</span>
@@ -600,15 +621,17 @@ export default function CheckoutPage() {
                       return (
                         <div key={item.product.id} className="summary-product-item">
                           <img
-                            src={item.product.image || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=150&q=80"}
+                            src={item.product.image || DEFAULT_PLACEHOLDER_IMAGE}
                             alt={item.product.name}
                             className="summary-product-img"
                           />
                           <div className="summary-product-details">
-                            <div className="summary-product-name">{item.product.name}</div>
-                            <div className="summary-product-sub">
-                              {item.variantName ? `${item.variantName} · ` : ""}Số lượng: {qty}
+                            <div className="summary-product-name">
+                              {item.product.name} × {qty}
                             </div>
+                            {item.variantName && (
+                              <div className="summary-product-sub">{item.variantName}</div>
+                            )}
                           </div>
                           <div className="summary-product-price">
                             {vnd(itemPrice)}
@@ -633,7 +656,7 @@ export default function CheckoutPage() {
                   </div>
 
                   {couponError && (
-                    <p style={{ color: "#dc2626", fontSize: "12px", margin: "-10px 0 10px" }}>
+                    <p style={{ color: "#dc2626", fontSize: "12px", margin: "-8px 0 10px" }}>
                       {couponError}
                     </p>
                   )}
@@ -651,19 +674,56 @@ export default function CheckoutPage() {
                     </div>
                   )}
 
-                  {/* Khung Chính sách bán hàng (theo đúng ảnh mẫu) */}
-                  <div className="policy-box-wrapper">
-                    <div className="policy-box-header">
-                      <FileText size={14} />
-                      <span>Chính sách bán hàng</span>
+                  {/* Danh sách voucher có sẵn */}
+                  {availableCoupons && availableCoupons.length > 0 && !appliedDiscount && (
+                    <div style={{ marginBottom: 12, fontSize: 12 }}>
+                      <span style={{ color: "#64748b", fontWeight: 600, display: "block", marginBottom: 6 }}>
+                        Mã ưu đãi dành cho bạn:
+                      </span>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {availableCoupons.slice(0, 4).map((c) => (
+                          <button
+                            key={c.code}
+                            type="button"
+                            onClick={() => applyCouponCode(c.code)}
+                            title={c.description}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              background: "#f8fafc",
+                              border: "1px dashed #cbd5e1",
+                              color: "#334155",
+                              cursor: "pointer",
+                            }}
+                          >
+                            🏷️ {c.code} {c.targetCustomer === "FIRST_ORDER" ? "(Khách mới)" : ""}
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                  )}
+
+                  {/* Khung Chính sách bán hàng (Cuộn như trong ảnh mẫu) */}
+                  <div className="policy-box-wrapper">
+                    <div className="policy-box-title">CHÍNH SÁCH BÁN HÀNG</div>
                     <div className="policy-box-content">
-                      <strong>1. Thanh toán</strong>
-                      Nhà Xinh áp dụng hình thức chuyển khoản qua ngân hàng, thanh toán tiền mặt khi nhận hàng (COD) hoặc thanh toán online qua cổng VNPAY / thẻ tín dụng.
-                      <strong>2. Giao nhận & Lắp đặt</strong>
-                      Miễn phí vận chuyển và lắp ráp trọn gói tận nhà cho mọi đơn hàng từ 5.000.000 VNĐ. Kỹ thuật viên Nhà Xinh bàn giao sản phẩm chỉn chu.
-                      <strong>3. Đổi trả & Bảo hành</strong>
-                      Bảo hành chính hãng 24 tháng cho mọi sản phẩm nội thất và bảo trì trọn đời. Đổi trả linh hoạt trong vòng 7 ngày nếu lỗi từ nhà sản xuất.
+                      <p><strong>1. Thanh toán</strong></p>
+                      <p>
+                        Nhà Xinh áp dụng hình thức thanh toán online qua thẻ tín dụng, chuyển khoản hoặc tiền mặt khi nhận hàng (COD), cụ thể:
+                      </p>
+                      <p><strong>Bước 1:</strong> Khách hàng tìm hiểu thông tin về sản phẩm.</p>
+                      <p><strong>Bước 2:</strong> Khách hàng kiểm tra và xác nhận đơn hàng tại website.</p>
+                      <p><strong>Bước 3:</strong> Nhà Xinh liên hệ xác nhận và tiến hành giao nhận hoàn thiện.</p>
+                      <p><strong>2. Giao nhận & Lắp đặt</strong></p>
+                      <p>
+                        Miễn phí vận chuyển và lắp ráp trọn gói tận nhà cho mọi đơn hàng nội thất Nhà Xinh. Đội ngũ kỹ thuật viên bàn giao sản phẩm chỉn chu, vệ sinh sạch sẽ.
+                      </p>
+                      <p><strong>3. Đổi trả & Bảo hành</strong></p>
+                      <p>
+                        Bảo hành chính hãng 24 tháng cho mọi sản phẩm nội thất và hỗ trợ bảo trì trọn đời. Đổi trả linh hoạt trong vòng 7 ngày nếu lỗi từ nhà sản xuất.
+                      </p>
                     </div>
                   </div>
 
@@ -680,7 +740,7 @@ export default function CheckoutPage() {
                     </span>
                   </label>
 
-                  {/* Nút ĐẶT MUA lớn (chính xác như ảnh mẫu) */}
+                  {/* Nút ĐẶT MUA lớn (chính xác như ảnh mẫu: nền đen, chữ hoa trắng) */}
                   <button
                     type="submit"
                     disabled={isSubmitting || hasPreorderItems}
@@ -690,12 +750,8 @@ export default function CheckoutPage() {
                       ? "Vui lòng đặt hàng qua Hotline / Zalo"
                       : isSubmitting
                       ? "Đang xử lý đơn hàng..."
-                      : "Đặt mua"}
+                      : "ĐẶT MUA"}
                   </button>
-
-                  <div style={{ marginTop: 14, textAlign: "center", fontSize: "11.5px", color: "#8c857b" }}>
-                    🔒 Cam kết bảo mật thanh toán SSL 256-bit chuẩn quốc tế
-                  </div>
                 </aside>
               </form>
             </>

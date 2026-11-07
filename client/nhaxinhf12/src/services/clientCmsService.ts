@@ -1,22 +1,27 @@
 // ══════════════════════════════════════════════════════════
 // CLIENT CMS SERVICE: Quản lý Menu, Hero Banner & Pandora Suggestion
+// 100% Đồng bộ trực tiếp qua Database Server (/api/v1/system-configs)
+// Tuyệt đối không dùng dữ liệu mock/default trong source code
 // ══════════════════════════════════════════════════════════
 
-import { NAV } from "../util/CONSTRAINT";
-import img1 from "../assets/image_sequence/ezgif-frame-001.png";
-import img8 from "../assets/image_sequence/ezgif-frame-070.png";
-import img10 from "../assets/image_sequence/ezgif-frame-090.png";
-import img13 from "../assets/image_sequence/ezgif-frame-110.png";
+export interface ClientSubMenuItem {
+  id: string;
+  label: string;
+  to: string;
+  badge?: string;
+  isVisible?: boolean;
+}
 
 export interface ClientMenuItem {
   id: string;
   label: string;
   to: string;
-  kind: "link" | "products" | "rooms" | "brands";
+  kind: "link" | "products" | "rooms" | "brands" | "dropdown";
   isVisible: boolean;
   order: number;
   badge?: string;
   isExternal?: boolean;
+  children?: ClientSubMenuItem[];
 }
 
 export interface HeroBannerAction {
@@ -31,6 +36,8 @@ export interface HeroBannerItem {
   subtitle: string;
   description: string;
   backgroundImage: string;
+  mediaType?: "image" | "video";
+  videoUrl?: string;
   actions: HeroBannerAction[];
   isActive: boolean;
   order: number;
@@ -60,230 +67,270 @@ export interface PandoraSuggestionConfig {
   products: PandoraProductItem[];
 }
 
-const STORAGE_KEYS = {
-  MENU: "nhaxinh_cms_navigation_menu_v2",
-  BANNERS: "nhaxinh_cms_hero_banners_v2",
-  PANDORA: "nhaxinh_cms_pandora_suggestion_v2",
-};
-
 export const CMS_EVENTS = {
   MENU_UPDATED: "nhaxinh_cms_menu_updated",
   BANNERS_UPDATED: "nhaxinh_cms_banners_updated",
   PANDORA_UPDATED: "nhaxinh_cms_pandora_updated",
 };
 
-// ── Dữ liệu mặc định cho Menu ──
-const DEFAULT_MENU_ITEMS: ClientMenuItem[] = NAV.map((item, idx) => ({
-  id: `nav-${idx + 1}-${item.label.toLowerCase().replace(/[^a-z0-9]/g, "-")}`,
-  label: item.label,
-  to: item.to,
-  kind: item.kind,
-  isVisible: true,
-  order: idx + 1,
-}));
-
-// ── Dữ liệu mặc định cho Hero Banners ──
-const DEFAULT_HERO_BANNERS: HeroBannerItem[] = [
-  {
-    id: "banner-1",
-    subtitle: "BỘ SƯU TẬP MỚI",
-    title: "Victoria",
-    description: "Từ cảm hứng miền quê Pháp đến cảm xúc ngôi nhà Việt với đường cong mềm mại và tông màu ấm áp.",
-    backgroundImage: img1,
-    actions: [{ label: "Khám phá ngay", url: "/bo-suu-tap/victoria", isPrimary: true }],
-    isActive: true,
-    order: 1,
-  },
-  {
-    id: "banner-2",
-    subtitle: "BỘ SƯU TẬP",
-    title: "Nét Đương Đại",
-    description: "Thiết kế tinh giản, hiện đại và phù hợp với những không gian sống trẻ trung.",
-    backgroundImage: img8,
-    actions: [
-      { label: "Khám phá", url: "/bo-suu-tap/net-duong-dai", isPrimary: true },
-      { label: "Xem sản phẩm", url: "/products", isPrimary: false },
-    ],
-    isActive: true,
-    order: 2,
-  },
-  {
-    id: "banner-3",
-    subtitle: "PHÒNG KHÁCH",
-    title: "Không gian kết nối",
-    description: "Những thiết kế sofa và bàn ghế mang đến sự thoải mái và tinh tế cho phòng khách.",
-    backgroundImage: img10,
-    actions: [{ label: "Xem sofa", url: "/category/sofa", isPrimary: true }],
-    isActive: true,
-    order: 3,
-  },
-  {
-    id: "banner-4",
-    subtitle: "PHÒNG NGỦ",
-    title: "Chạm vào sự thư thái",
-    description: "Kiến tạo không gian nghỉ ngơi ấm áp với những thiết kế nội thất phòng ngủ tinh tế.",
-    backgroundImage: img13,
-    actions: [{ label: "Khám phá phòng ngủ", url: "/category/phong-ngu", isPrimary: true }],
-    isActive: true,
-    order: 4,
-  },
-];
-
-// ── Dữ liệu mặc định cho Pandora Suggestion ──
-const DEFAULT_PANDORA_CONFIG: PandoraSuggestionConfig = {
-  isEnabled: true,
-  badgeTitle: "PANDORA EXCLUSIVE SUGGESTION",
-  mainTitle: "Gợi Ý Không Gian Tinh Tế Dành Riêng Cho Bạn",
-  subtitle: "Tuyển tập thiết kế nội thất mang linh hồn nghệ thuật Pandora — nơi sự thanh lịch giao hòa cùng công năng hiện đại.",
-  bannerImage: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80",
-  curatedTagFilter: ["Tất cả", "Sofa", "Bàn", "Ghế", "Giường", "Tủ"],
-  apiLimit: 8,
-  products: [
-    {
-      id: "pandora-1",
-      name: "Armchair Pandora Velvet Emerald",
-      category: "Sofa & Ghế Thư Giãn",
-      price: 15800000,
-      originalPrice: 19500000,
-      image: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=600&q=80",
-      tag: "Hộp quà Pandora",
-      url: "/san-pham/armchair-flow-green",
-      rating: 5,
-      isNew: true,
-    },
-    {
-      id: "pandora-2",
-      name: "Bàn trà Pandora Marble Royal Brass",
-      category: "Bàn Ăn Tinh Hoa",
-      price: 12500000,
-      originalPrice: 14800000,
-      image: "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=600&q=80",
-      tag: "Bán chạy nhất",
-      url: "/products",
-      rating: 4.9,
-    },
-    {
-      id: "pandora-3",
-      name: "Đèn thả chùm Pandora Celestial Glow",
-      category: "Đèn Trang Trí Nghệ Thuật",
-      price: 8900000,
-      originalPrice: 11200000,
-      image: "https://images.unsplash.com/photo-1513506003901-1e6a229e2d15?auto=format&fit=crop&w=600&q=80",
-      tag: "Ưu đãi 20%",
-      url: "/products",
-      rating: 4.8,
-      isNew: true,
-    },
-    {
-      id: "pandora-4",
-      name: "Giường ngủ Master Pandora Elegance Oak",
-      category: "Phòng Ngủ Quý Phái",
-      price: 28900000,
-      originalPrice: 34500000,
-      image: "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=600&q=80",
-      tag: "Độc quyền Nhà Xinh",
-      url: "/products",
-      rating: 5,
-    },
-  ],
-};
+// Dọn dẹp key cũ trong localStorage nếu có từ phiên bản trước
+if (typeof window !== "undefined") {
+  try {
+    localStorage.removeItem("nhaxinh_cms_navigation_menu_v2");
+    localStorage.removeItem("nhaxinh_cms_hero_banners_v2");
+    localStorage.removeItem("nhaxinh_cms_pandora_suggestion_v2");
+    localStorage.removeItem("nhaxinh_cms_navigation_menu");
+    localStorage.removeItem("nhaxinh_cms_hero_banners");
+    localStorage.removeItem("nhaxinh_cms_pandora_suggestion");
+  } catch {
+    // ignore
+  }
+}
 
 class ClientCmsService {
-  // ── MENU CMS ──
+  // Quản lý trạng thái thuần túy theo dữ liệu thực từ Server DB (Khởi đầu rỗng, không dùng dữ liệu default)
+  private inMemoryMenu: ClientMenuItem[] = [];
+  private inMemoryBanners: HeroBannerItem[] = [];
+  private inMemoryPandora: PandoraSuggestionConfig = {
+    isEnabled: false,
+    badgeTitle: "",
+    mainTitle: "",
+    subtitle: "",
+    bannerImage: "",
+    curatedTagFilter: [],
+    apiLimit: 8,
+    products: [],
+  };
+
+  // ───────────────────────────────────────────────
+  // 1. MENU CMS (Đồng bộ qua API Backend)
+  // ───────────────────────────────────────────────
+
   getMenuItems(): ClientMenuItem[] {
+    return [...this.inMemoryMenu];
+  }
+
+  /**
+   * Tải menu từ Server DB (/api/v1/system-configs/navigation-menu).
+   * Phát sự kiện MENU_UPDATED khi có dữ liệu. Không dùng dữ liệu default.
+   */
+  async fetchMenuItems(): Promise<ClientMenuItem[]> {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.MENU);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.sort((a, b) => a.order - b.order);
+      const res = await fetch("/api/v1/system-configs/navigation-menu");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.value && typeof data.value === "string" && data.value.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(data.value);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const sorted = parsed.sort((a: ClientMenuItem, b: ClientMenuItem) => a.order - b.order);
+              this.inMemoryMenu = sorted;
+              window.dispatchEvent(new CustomEvent(CMS_EVENTS.MENU_UPDATED, { detail: sorted }));
+              return sorted;
+            }
+          } catch {
+            // Parse không thành công thì giữ mảng rỗng
+          }
         }
       }
     } catch (e) {
-      console.warn("Lỗi đọc menu CMS từ localStorage:", e);
+      console.warn("[ClientCmsService] Lỗi kết nối tải menu từ server:", e);
     }
-    return [...DEFAULT_MENU_ITEMS];
+    return this.getMenuItems();
   }
 
-  saveMenuItems(items: ClientMenuItem[]): void {
+  async saveMenuItems(items: ClientMenuItem[]): Promise<void> {
+    const sorted = [...items].sort((a, b) => a.order - b.order);
+    this.inMemoryMenu = sorted;
+    window.dispatchEvent(new CustomEvent(CMS_EVENTS.MENU_UPDATED, { detail: sorted }));
+
+    // Tự động lưu lên Database Server
     try {
-      const sorted = [...items].sort((a, b) => a.order - b.order);
-      localStorage.setItem(STORAGE_KEYS.MENU, JSON.stringify(sorted));
-      window.dispatchEvent(new Event(CMS_EVENTS.MENU_UPDATED));
-    } catch (e) {
-      console.error("Lỗi lưu menu CMS:", e);
+      await fetch("/api/v1/system-configs/navigation-menu", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: JSON.stringify(sorted) }),
+      });
+    } catch (err) {
+      console.warn("[ClientCmsService] Lỗi đồng bộ menu điều hướng lên server:", err);
     }
   }
 
   resetMenuItems(): ClientMenuItem[] {
-    localStorage.removeItem(STORAGE_KEYS.MENU);
-    window.dispatchEvent(new Event(CMS_EVENTS.MENU_UPDATED));
-    return [...DEFAULT_MENU_ITEMS];
+    this.inMemoryMenu = [];
+    window.dispatchEvent(new CustomEvent(CMS_EVENTS.MENU_UPDATED, { detail: [] }));
+    fetch("/api/v1/system-configs/navigation-menu", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "" }),
+    }).catch(() => {});
+    return [];
   }
 
-  // ── HERO BANNERS CMS ──
+  // Đồng bộ danh mục sản phẩm từ Database vào làm Menu con (Submenu)
+  syncCategoriesToMenu(categories: Array<{ id?: string | number; name: string; slug: string }>): ClientMenuItem[] {
+    const current = this.getMenuItems();
+    const subItems: ClientSubMenuItem[] = categories.map((cat, idx) => ({
+      id: `sub-cat-${cat.slug || idx}-${Date.now()}`,
+      label: cat.name,
+      to: `/san-pham?category=${encodeURIComponent(cat.slug || cat.name)}`,
+      isVisible: true,
+    }));
+
+    const productMenuIndex = current.findIndex(
+      (m) => m.kind === "dropdown" || m.kind === "products" || m.label.toLowerCase().includes("sản phẩm")
+    );
+
+    let updated: ClientMenuItem[];
+    if (productMenuIndex >= 0) {
+      updated = current.map((item, idx) =>
+        idx === productMenuIndex
+          ? {
+              ...item,
+              kind: item.kind || "products",
+              children: subItems,
+            }
+          : item
+      );
+    } else {
+      const newMenuItem: ClientMenuItem = {
+        id: `nav-products-db-${Date.now()}`,
+        label: "Sản phẩm",
+        to: "/san-pham",
+        kind: "products",
+        isVisible: true,
+        order: 2,
+        children: subItems,
+      };
+      updated = [...current, newMenuItem];
+    }
+
+    void this.saveMenuItems(updated);
+    return updated;
+  }
+
+  // ───────────────────────────────────────────────
+  // 2. HERO BANNERS CMS (Đồng bộ qua API Backend)
+  // ───────────────────────────────────────────────
+
   getHeroBanners(): HeroBannerItem[] {
+    return [...this.inMemoryBanners];
+  }
+
+  async fetchHeroBanners(): Promise<HeroBannerItem[]> {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.BANNERS);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.sort((a, b) => a.order - b.order);
+      const res = await fetch("/api/v1/system-configs/hero_banners");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.value && typeof data.value === "string" && data.value.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(data.value);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const sorted = parsed.sort((a: HeroBannerItem, b: HeroBannerItem) => a.order - b.order);
+              this.inMemoryBanners = sorted;
+              window.dispatchEvent(new Event(CMS_EVENTS.BANNERS_UPDATED));
+              return sorted;
+            }
+          } catch {
+            // ignore
+          }
         }
       }
     } catch (e) {
-      console.warn("Lỗi đọc hero banners CMS từ localStorage:", e);
+      console.warn("[ClientCmsService] Lỗi tải hero banners từ server:", e);
     }
-    return [...DEFAULT_HERO_BANNERS];
+    return this.getHeroBanners();
   }
 
   saveHeroBanners(banners: HeroBannerItem[]): void {
-    try {
-      const sorted = [...banners].sort((a, b) => a.order - b.order);
-      localStorage.setItem(STORAGE_KEYS.BANNERS, JSON.stringify(sorted));
-      window.dispatchEvent(new Event(CMS_EVENTS.BANNERS_UPDATED));
-    } catch (e) {
-      console.error("Lỗi lưu hero banners CMS:", e);
-    }
+    const sorted = [...banners].sort((a, b) => a.order - b.order);
+    this.inMemoryBanners = sorted;
+    window.dispatchEvent(new Event(CMS_EVENTS.BANNERS_UPDATED));
+
+    fetch("/api/v1/system-configs/hero_banners", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: JSON.stringify(sorted) }),
+    }).catch((err) => {
+      console.warn("[ClientCmsService] Lỗi lưu hero banners lên server:", err);
+    });
   }
 
   resetHeroBanners(): HeroBannerItem[] {
-    localStorage.removeItem(STORAGE_KEYS.BANNERS);
+    this.inMemoryBanners = [];
     window.dispatchEvent(new Event(CMS_EVENTS.BANNERS_UPDATED));
-    return [...DEFAULT_HERO_BANNERS];
+    fetch("/api/v1/system-configs/hero_banners", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "" }),
+    }).catch(() => {});
+    return [];
   }
 
-  // ── PANDORA SUGGESTION CMS ──
+  // ───────────────────────────────────────────────
+  // 3. PANDORA SUGGESTION CMS (Đồng bộ qua API Backend)
+  // ───────────────────────────────────────────────
+
   getPandoraConfig(): PandoraSuggestionConfig {
+    return { ...this.inMemoryPandora };
+  }
+
+  async fetchPandoraConfig(): Promise<PandoraSuggestionConfig> {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.PANDORA);
-      if (data) {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === "object") {
-          return { ...DEFAULT_PANDORA_CONFIG, ...parsed };
+      const res = await fetch("/api/v1/system-configs/pandora_config");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.value && typeof data.value === "string" && data.value.trim().length > 0) {
+          try {
+            const parsed = JSON.parse(data.value);
+            if (parsed && typeof parsed === "object") {
+              this.inMemoryPandora = { ...this.inMemoryPandora, ...parsed };
+              window.dispatchEvent(new Event(CMS_EVENTS.PANDORA_UPDATED));
+              return this.inMemoryPandora;
+            }
+          } catch {
+            // ignore
+          }
         }
       }
     } catch (e) {
-      console.warn("Lỗi đọc Pandora Suggestion CMS từ localStorage:", e);
+      console.warn("[ClientCmsService] Lỗi tải Pandora config từ server:", e);
     }
-    return { ...DEFAULT_PANDORA_CONFIG };
+    return this.getPandoraConfig();
   }
 
   savePandoraConfig(config: PandoraSuggestionConfig): void {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PANDORA, JSON.stringify(config));
-      window.dispatchEvent(new Event(CMS_EVENTS.PANDORA_UPDATED));
-    } catch (e) {
-      console.error("Lỗi lưu Pandora Suggestion CMS:", e);
-    }
+    this.inMemoryPandora = { ...config };
+    window.dispatchEvent(new Event(CMS_EVENTS.PANDORA_UPDATED));
+
+    fetch("/api/v1/system-configs/pandora_config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: JSON.stringify(config) }),
+    }).catch((err) => {
+      console.warn("[ClientCmsService] Lỗi lưu Pandora config lên server:", err);
+    });
   }
 
   resetPandoraConfig(): PandoraSuggestionConfig {
-    localStorage.removeItem(STORAGE_KEYS.PANDORA);
+    this.inMemoryPandora = {
+      isEnabled: false,
+      badgeTitle: "",
+      mainTitle: "",
+      subtitle: "",
+      bannerImage: "",
+      curatedTagFilter: [],
+      apiLimit: 8,
+      products: [],
+    };
     window.dispatchEvent(new Event(CMS_EVENTS.PANDORA_UPDATED));
-    return { ...DEFAULT_PANDORA_CONFIG };
+    fetch("/api/v1/system-configs/pandora_config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "" }),
+    }).catch(() => {});
+    return { ...this.inMemoryPandora };
   }
 }
 
 export const clientCmsService = new ClientCmsService();
-

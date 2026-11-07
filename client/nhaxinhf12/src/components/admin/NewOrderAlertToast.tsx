@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ShoppingBag, X, ArrowRight, BellRing } from "lucide-react";
+import { ShoppingBag, X, ArrowRight, BellRing, CreditCard, UserCheck } from "lucide-react";
 
 export interface NewOrderAlertData {
   id: string;
@@ -8,6 +8,9 @@ export interface NewOrderAlertData {
   total: number;
   itemsCount: number;
   createdAt: string;
+  alertType?: "customer_order" | "staff_order" | "payment_confirmed";
+  actorName?: string;
+  paymentMethod?: string;
 }
 
 interface NewOrderAlertToastProps {
@@ -31,17 +34,50 @@ export default function NewOrderAlertToast({
 
   if (!alert) return null;
 
+  const isStaffOrder = alert.alertType === "staff_order";
+  const isPayment = alert.alertType === "payment_confirmed";
+
+  const borderClass = isPayment
+    ? "border-amber-500"
+    : isStaffOrder
+    ? "border-blue-500"
+    : "border-emerald-500";
+
+  const headerGradient = isPayment
+    ? "from-amber-500 to-orange-600"
+    : isStaffOrder
+    ? "from-blue-600 to-indigo-600"
+    : "from-emerald-600 to-teal-600";
+
+  const headerTitle = isPayment
+    ? "Xác nhận thanh toán thành công!"
+    : isStaffOrder
+    ? "Nhân viên vừa tạo đơn mới!"
+    : "Đơn hàng mới vừa về!";
+
+  const badgeLabel = isPayment
+    ? `Đã thu (${(alert.paymentMethod || "Online").toUpperCase()})`
+    : isStaffOrder
+    ? `NV: ${alert.actorName || "Showroom"}`
+    : "Khách đặt Web";
+
+  const btnClass = isPayment
+    ? "bg-amber-600 hover:bg-amber-700"
+    : isStaffOrder
+    ? "bg-blue-600 hover:bg-blue-700"
+    : "bg-emerald-600 hover:bg-emerald-700";
+
   return (
     <div className="fixed top-5 right-5 z-[999999] max-w-sm w-full transition-all duration-300 animate-in slide-in-from-top-4 fade-in">
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border-2 border-emerald-500 overflow-hidden text-slate-800">
+      <div className={`bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border-2 ${borderClass} overflow-hidden text-slate-800`}>
         {/* Top Header Banner */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-2.5 flex items-center justify-between text-white">
+        <div className={`bg-gradient-to-r ${headerGradient} px-4 py-2.5 flex items-center justify-between text-white`}>
           <div className="flex items-center gap-2">
             <span className="p-1 rounded-lg bg-white/20 animate-pulse">
               <BellRing size={16} />
             </span>
             <span className="text-xs font-black tracking-wide uppercase">
-              Đơn hàng mới vừa về!
+              {headerTitle}
             </span>
           </div>
           <button
@@ -56,16 +92,32 @@ export default function NewOrderAlertToast({
 
         {/* Content Body */}
         <div className="p-4 flex gap-3.5 items-start">
-          <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
-            <ShoppingBag size={20} />
+          <div
+            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+              isPayment
+                ? "bg-amber-100 text-amber-700"
+                : isStaffOrder
+                ? "bg-blue-100 text-blue-700"
+                : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {isPayment ? <CreditCard size={20} /> : isStaffOrder ? <UserCheck size={20} /> : <ShoppingBag size={20} />}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1">
               <span className="text-xs font-bold text-slate-900 truncate">
                 Mã: #{alert.orderCode}
               </span>
-              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shrink-0">
-                Mới nhận
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
+                  isPayment
+                    ? "text-amber-700 bg-amber-50 border-amber-200"
+                    : isStaffOrder
+                    ? "text-blue-700 bg-blue-50 border-blue-200"
+                    : "text-emerald-700 bg-emerald-50 border-emerald-200"
+                }`}
+              >
+                {badgeLabel}
               </span>
             </div>
 
@@ -77,7 +129,7 @@ export default function NewOrderAlertToast({
               <span className="text-slate-500">
                 {alert.itemsCount} sản phẩm
               </span>
-              <span className="font-extrabold text-emerald-600 text-sm">
+              <span className={`font-extrabold text-sm ${isPayment ? "text-amber-600" : isStaffOrder ? "text-blue-600" : "text-emerald-600"}`}>
                 {Number(alert.total).toLocaleString("vi-VN")} ₫
               </span>
             </div>
@@ -89,7 +141,7 @@ export default function NewOrderAlertToast({
           <button
             type="button"
             onClick={() => onViewOrder(alert.id)}
-            className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+            className={`flex-1 py-2 px-3 rounded-xl ${btnClass} text-white text-xs font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-1.5 cursor-pointer`}
           >
             <span>Xem chi tiết đơn</span>
             <ArrowRight size={13} />

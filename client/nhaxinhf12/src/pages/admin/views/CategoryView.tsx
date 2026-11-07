@@ -15,6 +15,9 @@ import {
   Sparkles,
   CheckCircle2,
   Image as ImageIcon,
+  AlertTriangle,
+  Upload,
+  User,
 } from "lucide-react";
 import type { AdminCategory, RoleDefinition } from "../../../services/admin/types";
 import PermissionGate from "../../../components/admin/PermissionGate";
@@ -27,7 +30,8 @@ import {
 interface CategoryViewProps {
   categories: AdminCategory[];
   currentRole: RoleDefinition;
-  onSaveCategory: (cat: Partial<AdminCategory>) => Promise<void>;
+  currentUserName?: string;
+  onSaveCategory: (cat: Partial<AdminCategory>, imageFile?: File | null) => Promise<void>;
   onDeleteCategory: (id: string) => Promise<void>;
   onRestoreCategory: (id: string) => Promise<void>;
 }
@@ -35,6 +39,7 @@ interface CategoryViewProps {
 export default function CategoryView({
   categories,
   currentRole,
+  currentUserName,
   onSaveCategory,
   onDeleteCategory,
   onRestoreCategory,
@@ -52,6 +57,9 @@ export default function CategoryView({
     formName,
     formSlug,
     setFormSlug,
+    isSlugDuplicate,
+    suggestedSlug,
+    handleApplySuggestedSlug,
     formParentId,
     setFormParentId,
     formOrder,
@@ -60,13 +68,14 @@ export default function CategoryView({
     setFormDescription,
     formImageUrl,
     setFormImageUrl,
-    formIsCollection,
-    setFormIsCollection,
+    formImageFile,
+    setFormImageFile,
+    formPreviewUrl,
+    formCategoryGroup,
+    setFormCategoryGroup,
     submitError,
     toastMessage,
     parentCategories,
-    collectionsList,
-    isCollectionItem,
     activePagination,
     trashPagination,
     handleOpenAdd,
@@ -80,6 +89,7 @@ export default function CategoryView({
     onSaveCategory,
     onDeleteCategory,
     onRestoreCategory,
+    viewMode: "categories_only",
   });
 
   const currentPagination =
@@ -101,6 +111,36 @@ export default function CategoryView({
     }
   }, [showModal, setShowModal]);
 
+  const renderGroupBadge = (group?: string, isCol?: boolean) => {
+    const g = (group || (isCol ? "COLLECTION" : "PRODUCT")).toUpperCase();
+    if (g === "ROOM") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+          Phòng
+        </span>
+      );
+    }
+    if (g === "COLLECTION") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 inline-flex items-center gap-0.5">
+          <Sparkles size={10} /> Bộ sưu tập
+        </span>
+      );
+    }
+    if (g === "PAGE" || g === "STATIC") {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+          Trang tĩnh
+        </span>
+      );
+    }
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+        Sản phẩm
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-6 text-slate-800">
       {toastMessage && (
@@ -115,15 +155,15 @@ export default function CategoryView({
         <div>
           <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
             <FolderTree className="text-blue-600" size={24} />
-            Cấu trúc Phân cấp Danh mục & Bộ sưu tập
+            Cấu trúc Phân cấp Danh mục Sản phẩm & Không gian
           </h2>
           <p className="text-xs text-slate-500 mt-1">
-            Quản lý cây Danh mục Cha/Con, Bộ sưu tập thiết kế (/bo-suu-tap), đường dẫn SEO slug và tự động ghi Nhật ký Hoạt động
+            Quản lý cây Danh mục Cha/Con cho Sản phẩm (Sofa, Bàn, Ghế...) và Không gian phòng (Phòng khách, Phòng ăn...), đường dẫn SEO slug và tự động ghi Nhật ký Hoạt động.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap w-full md:w-auto justify-between md:justify-end">
-          {/* Tab filter: Đang hiển thị / Bộ sưu tập / Thùng rác */}
+          {/* Tab filter: Đang hiển thị / Thùng rác */}
           <div className="inline-flex p-1 bg-slate-100 rounded-lg text-xs font-semibold">
             <button
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
@@ -133,17 +173,7 @@ export default function CategoryView({
               }`}
               onClick={() => setActiveTab("active")}
             >
-              <Folder size={14} /> Danh mục ({categories.filter((c) => !c.isDeleted).length})
-            </button>
-            <button
-              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
-                activeTab === "collections"
-                  ? "bg-white text-violet-600 shadow-xs font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-              onClick={() => setActiveTab("collections")}
-            >
-              <Sparkles size={14} /> Bộ sưu tập ({collectionsList.length})
+              <Folder size={14} /> Danh mục ({categories.filter((c) => !c.isDeleted && c.categoryGroup !== "COLLECTION" && !c.isCollection).length})
             </button>
             <button
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
@@ -153,20 +183,22 @@ export default function CategoryView({
               }`}
               onClick={() => setActiveTab("trash")}
             >
-              <EyeOff size={14} /> Thùng rác ({categories.filter((c) => c.isDeleted).length})
+              <EyeOff size={14} /> Thùng rác ({categories.filter((c) => c.isDeleted && c.categoryGroup !== "COLLECTION" && !c.isCollection).length})
             </button>
           </div>
 
-          {/* Level filter */}
+          {/* Level & Group filter */}
           <select
             value={levelFilter}
             onChange={(e) => setLevelFilter(e.target.value as CategoryLevelFilter)}
             className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-700"
           >
-            <option value="all">Mọi cấp độ</option>
+            <option value="all">Mọi phân loại</option>
             <option value="parent">Chỉ cấp cha</option>
             <option value="child">Chỉ cấp con</option>
-            <option value="collection">Chỉ Bộ sưu tập</option>
+            <option value="product">Chỉ Sản phẩm (PRODUCT)</option>
+            <option value="room">Chỉ Không gian phòng (ROOM)</option>
+            <option value="page">Chỉ Trang tĩnh (PAGE / STATIC)</option>
           </select>
 
           {/* Search bar */}
@@ -181,22 +213,14 @@ export default function CategoryView({
             />
           </div>
 
-          {/* Add Category & Collection buttons */}
+          {/* Add Category button */}
           <PermissionGate permission="categories.create" currentRole={currentRole}>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => handleOpenAdd(undefined, true)}
-                className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Sparkles size={14} /> Thêm Bộ sưu tập
-              </button>
-              <button
-                onClick={() => handleOpenAdd(undefined, false)}
-                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
-              >
-                <Plus size={15} /> Thêm Danh mục
-              </button>
-            </div>
+            <button
+              onClick={() => handleOpenAdd(undefined, false, "PRODUCT")}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Plus size={15} /> Thêm Danh mục
+            </button>
           </PermissionGate>
         </div>
       </div>
@@ -213,8 +237,9 @@ export default function CategoryView({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px] font-semibold">
-                <th className="py-3 px-4">Tên danh mục / Bộ sưu tập</th>
+                <th className="py-3 px-4">Tên danh mục</th>
                 <th className="py-3 px-4">Đường dẫn SEO (Slug)</th>
+                <th className="py-3 px-4">Người tạo</th>
                 <th className="py-3 px-4 text-center">Thứ tự</th>
                 <th className="py-3 px-4 text-center">Sản phẩm</th>
                 <th className="py-3 px-4"> Trạng thái</th>
@@ -225,7 +250,6 @@ export default function CategoryView({
               {activeTab !== "trash" ? (
                 activePagination.paginatedItems.length > 0 ? (
                   activePagination.paginatedItems.map((parent) => {
-                    const isCol = isCollectionItem(parent);
                     return (
                       <React.Fragment key={parent.id}>
                         {/* ── Cấp Cha / Item ── */}
@@ -239,25 +263,15 @@ export default function CategoryView({
                                   className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
                                 />
                               ) : (
-                                <div
-                                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                    isCol
-                                      ? "bg-violet-100 text-violet-600"
-                                      : "bg-blue-100 text-blue-600"
-                                  }`}
-                                >
-                                  {isCol ? <Sparkles size={16} /> : <FolderOpen size={16} />}
+                                <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-blue-100 text-blue-600">
+                                  <FolderOpen size={16} />
                                 </div>
                               )}
                               <div>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   <span className="font-bold text-slate-900 text-xs">{parent.name}</span>
-                                  {isCol && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-50 text-violet-700 border border-violet-200 inline-flex items-center gap-0.5">
-                                      <Sparkles size={10} /> Bộ sưu tập
-                                    </span>
-                                  )}
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  {renderGroupBadge(parent.categoryGroup, false)}
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
                                     {parent.parentId ? "Cấp con" : "Cấp cha"}
                                   </span>
                                 </div>
@@ -274,6 +288,12 @@ export default function CategoryView({
                               /{parent.slug}
                             </code>
                           </td>
+                          <td className="py-3 px-4">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                              <User size={11} className="text-slate-500" />
+                              {parent.createdBy || "Quản trị viên"}
+                            </span>
+                          </td>
                           <td className="py-3 px-4 text-center font-medium text-slate-600">{parent.order}</td>
                           <td className="py-3 px-4 text-center">
                             <span className="font-bold text-slate-800">{parent.productCount}</span>
@@ -289,9 +309,9 @@ export default function CategoryView({
                               {!parent.parentId && (
                                 <PermissionGate permission="categories.create" currentRole={currentRole}>
                                   <button
-                                    onClick={() => handleOpenAdd(parent.id, isCol)}
+                                    onClick={() => handleOpenAdd(parent.id, false)}
                                     className="px-2 py-1 rounded-md text-[11px] font-semibold border border-blue-200 text-blue-600 hover:bg-blue-50 flex items-center gap-1 transition-all"
-                                    title="Thêm danh mục con hoặc bộ sưu tập con"
+                                    title="Thêm danh mục con"
                                   >
                                     <Plus size={12} /> Thêm con
                                   </button>
@@ -322,7 +342,6 @@ export default function CategoryView({
                         {/* ── Cấp Con (Children) ── */}
                         {parent.children &&
                           parent.children.map((child) => {
-                            const isChildCol = isCollectionItem(child);
                             return (
                               <tr key={child.id} className="hover:bg-slate-50 transition-colors">
                                 <td className="py-2.5 px-4">
@@ -334,19 +353,13 @@ export default function CategoryView({
                                         alt={child.name}
                                         className="w-7 h-7 rounded object-cover border border-slate-200 shrink-0"
                                       />
-                                    ) : isChildCol ? (
-                                      <Sparkles size={14} className="text-violet-500 shrink-0" />
                                     ) : (
                                       <Folder size={15} className="text-slate-400 shrink-0" />
                                     )}
                                     <div>
-                                      <div className="flex items-center gap-1.5">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
                                         <span className="font-medium text-slate-800">{child.name}</span>
-                                        {isChildCol && (
-                                          <span className="px-1.5 py-0.2 rounded text-[9.5px] font-semibold bg-violet-50 text-violet-700 border border-violet-200">
-                                            Bộ sưu tập
-                                          </span>
-                                        )}
+                                        {renderGroupBadge(child.categoryGroup, false)}
                                       </div>
                                       {child.description && (
                                         <p className="text-[10.5px] text-slate-400 line-clamp-1 max-w-sm">
@@ -361,11 +374,17 @@ export default function CategoryView({
                                     /{child.slug}
                                   </code>
                                 </td>
+                                <td className="py-2.5 px-4">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                    <User size={10} className="text-slate-500" />
+                                    {child.createdBy || "Quản trị viên"}
+                                  </span>
+                                </td>
                                 <td className="py-2.5 px-4 text-center font-medium text-slate-500">{child.order}</td>
                                 <td className="py-2.5 px-4 text-center font-semibold text-slate-700">{child.productCount}</td>
                                 <td className="py-2.5 px-4">
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium bg-slate-100 text-slate-600">
-                                    {isChildCol ? "BST Con" : "Con"}
+                                    Con
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-4 text-right">
@@ -398,8 +417,8 @@ export default function CategoryView({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                      Không tìm thấy danh mục / bộ sưu tập nào phù hợp với bộ lọc.
+                    <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
+                      Không tìm thấy danh mục nào phù hợp với bộ lọc.
                     </td>
                   </tr>
                 )
@@ -415,6 +434,12 @@ export default function CategoryView({
                         </div>
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">/{cat.slug}</td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                          <User size={11} className="text-slate-500" />
+                          {cat.createdBy || "Quản trị viên"}
+                        </span>
+                      </td>
                       <td className="py-3 px-4 text-center text-slate-500">{cat.order}</td>
                       <td className="py-3 px-4 text-center text-slate-500">{cat.productCount}</td>
                       <td className="py-3 px-4">
@@ -436,8 +461,8 @@ export default function CategoryView({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                      Thùng rác rỗng. Chưa có danh mục hoặc bộ sưu tập nào bị xóa mềm.
+                    <td colSpan={7} className="py-12 text-center text-slate-400 text-xs">
+                      Thùng rác rỗng. Chưa có danh mục nào bị xóa mềm.
                     </td>
                   </tr>
                 )
@@ -445,10 +470,10 @@ export default function CategoryView({
             </tbody>
           </table>
         </div>
-        <AdminPagination pagination={currentPagination} itemLabel="danh mục / bộ sưu tập" />
+        <AdminPagination pagination={currentPagination} itemLabel="danh mục" />
       </div>
 
-      {/* ── Modal Thêm / Chỉnh sửa Danh mục & Bộ sưu tập ── */}
+      {/* ── Modal Thêm / Chỉnh sửa Danh mục ── */}
       {showModal &&
         createPortal(
           <div
@@ -459,16 +484,18 @@ export default function CategoryView({
           >
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-50/70 shrink-0">
-                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  {formIsCollection ? (
-                    <Sparkles className="text-violet-600" size={18} />
-                  ) : (
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                     <FolderTree className="text-blue-600" size={18} />
-                  )}
-                  {editingCategory
-                    ? `Chỉnh sửa ${formIsCollection ? "Bộ sưu tập" : "Danh mục"}`
-                    : `Thêm mới ${formIsCollection ? "Bộ sưu tập thiết kế" : "Danh mục sản phẩm"}`}
-                </h3>
+                    {editingCategory ? "Chỉnh sửa Danh mục" : "Thêm mới Danh mục sản phẩm / Không gian"}
+                  </h3>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                      <User size={10} />
+                      {editingCategory ? `Người tạo: ${editingCategory.createdBy || "Quản trị viên"}` : `Người tạo: ${currentUserName || currentRole.name || "Quản trị viên"}`}
+                    </span>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
@@ -487,36 +514,41 @@ export default function CategoryView({
                   </p>
                 )}
 
-                <label className="flex items-center gap-2.5 p-3 rounded-lg border border-violet-200 bg-violet-50/50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formIsCollection}
-                    onChange={(e) => setFormIsCollection(e.target.checked)}
-                    className="accent-violet-600 w-4 h-4"
-                  />
-                  <div>
-                    <div className="font-bold text-violet-900 flex items-center gap-1">
-                      <Sparkles size={13} /> Đánh dấu là Bộ sưu tập Thiết kế (Collection)
-                    </div>
-                    <div className="text-[11px] text-violet-700">
-                      Hiển thị nổi bật tại trang Bộ sưu tập (/bo-suu-tap) và tự động ghi nhật ký phân hệ Bộ sưu tập
-                    </div>
+                {/* ── Phân loại mục đích sử dụng (category_group) ── */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Phân loại mục đích sử dụng (Nhóm danh mục) <span className="text-rose-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-slate-500">category_group</span>
                   </div>
-                </label>
+                  <select
+                    value={formCategoryGroup}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormCategoryGroup(val);
+                    }}
+                    className="w-full h-9 px-3 text-xs rounded-lg border border-slate-300 bg-white text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="PRODUCT">PRODUCT — Danh mục sản phẩm (Sofa, Bàn, Ghế, Tủ, Giường...)</option>
+                    <option value="ROOM">ROOM — Không gian phòng (Phòng khách, Phòng ăn, Phòng ngủ, Phòng làm việc...)</option>
+                    <option value="PAGE">PAGE — Trang tĩnh / Chân trang (Giới thiệu, Tuyển dụng, Đổi trả hàng...)</option>
+                    <option value="STATIC">STATIC — Trang thông tin tĩnh</option>
+                  </select>
+                  <p className="text-[11px] text-slate-500">
+                    Phân loại chuẩn giúp hiển thị chính xác trên Mega Menu và các trang chức năng tương ứng của Nhà Xinh.
+                  </p>
+                </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1.5">
-                      Tên {formIsCollection ? "bộ sưu tập" : "danh mục"} <span className="text-rose-500">*</span>
+                      Tên danh mục <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
                       required
-                      placeholder={
-                        formIsCollection
-                          ? "VD: Bộ sưu tập Indochine..."
-                          : "VD: Sofa da thật, Bàn trà tròn..."
-                      }
+                      placeholder="VD: Sofa da thật, Bàn trà tròn, Phòng khách..."
                       value={formName}
                       onChange={(e) => handleNameChange(e.target.value)}
                       className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
@@ -524,17 +556,42 @@ export default function CategoryView({
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1.5">
-                      Đường dẫn SEO (Slug) - Tự sinh
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block font-semibold text-slate-700">
+                        Đường dẫn SEO (Slug) - Tự sinh
+                      </label>
+                      {isSlugDuplicate && (
+                        <span className="text-[11px] font-bold text-amber-600 flex items-center gap-1">
+                          <AlertTriangle size={12} /> Trùng với danh mục khác
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="text"
                       required
                       placeholder="bo-suu-tap-indochine"
                       value={formSlug}
                       onChange={(e) => setFormSlug(e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                      className={`w-full px-3 py-2 text-xs font-mono border rounded-lg focus:outline-none transition-all ${
+                        isSlugDuplicate
+                          ? "border-amber-400 bg-amber-50/40 text-amber-900 focus:ring-2 focus:ring-amber-400"
+                          : "border-slate-300 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      }`}
                     />
+                    {isSlugDuplicate && (
+                      <div className="mt-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center justify-between gap-2">
+                        <span>
+                          Đường dẫn này đã trùng lặp. Gợi ý: <strong>{suggestedSlug}</strong>.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleApplySuggestedSlug}
+                          className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] shrink-0 cursor-pointer shadow-2xs"
+                        >
+                          Áp dụng ngay
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -573,23 +630,95 @@ export default function CategoryView({
                   </div>
                 </div>
 
+                {/* Upload ảnh bìa từ máy tính hoặc nhập URL */}
                 <div>
-                  <label className="font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
-                    <ImageIcon size={13} className="text-slate-500" />
-                    URL Ảnh bìa / Banner Bộ sưu tập
+                  <label className="font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-xs">
+                      <ImageIcon size={13} className="text-slate-500" />
+                      Ảnh bìa / Icon Danh mục
+                    </span>
+                    {formImageFile && (
+                      <span className="text-[11px] font-normal text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        File từ máy: {formImageFile.name}
+                      </span>
+                    )}
                   </label>
-                  <input
-                    type="text"
-                    placeholder="https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1000&q=80"
-                    value={formImageUrl}
-                    onChange={(e) => setFormImageUrl(e.target.value)}
-                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                  />
+
+                  {/* Khu vực chọn ảnh từ máy */}
+                  <div className="flex flex-col gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 hover:border-slate-400 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer shadow-2xs transition-all">
+                        <Upload size={14} className="text-blue-600" />
+                        <span>Chọn ảnh từ máy tính</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              setFormImageFile(file);
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <span className="text-[11px] text-slate-400">hoặc dán liên kết URL bên dưới</span>
+                    </div>
+
+                    {/* Preview ảnh nếu có */}
+                    {formPreviewUrl && (
+                      <div className="relative inline-flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-200">
+                        <img
+                          src={formPreviewUrl}
+                          alt="Xem trước ảnh"
+                          className="w-16 h-12 object-cover rounded-md border border-slate-100"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = "none";
+                          }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-semibold text-slate-700 truncate">
+                            {formImageFile ? formImageFile.name : formPreviewUrl}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {formImageFile
+                              ? `${(formImageFile.size / 1024).toFixed(1)} KB • Tải lên máy chủ khi Lưu`
+                              : "Đường dẫn ảnh trực tuyến"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormImageFile(null);
+                            setFormImageUrl("");
+                          }}
+                          className="p-1 hover:bg-slate-100 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                          title="Xóa ảnh"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/... hoặc dán link ảnh trực tuyến"
+                      value={formImageUrl}
+                      onChange={(e) => {
+                        setFormImageUrl(e.target.value);
+                        if (e.target.value && formImageFile) {
+                          setFormImageFile(null);
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1.5">
-                    Câu chuyện / Mô tả {formIsCollection ? "Bộ sưu tập" : "Danh mục"}
+                    Mô tả Danh mục
                   </label>
                   <textarea
                     rows={3}
@@ -611,17 +740,9 @@ export default function CategoryView({
                 </button>
                 <button
                   type="submit"
-                  className={`px-4 py-2 text-white rounded-lg text-xs font-semibold shadow-xs transition-all ${
-                    formIsCollection
-                      ? "bg-violet-600 hover:bg-violet-700"
-                      : "bg-blue-600 hover:bg-blue-700"
-                  }`}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-all"
                 >
-                  {editingCategory
-                    ? "Lưu thay đổi"
-                    : formIsCollection
-                    ? "Tạo Bộ sưu tập"
-                    : "Tạo Danh mục"}
+                  {editingCategory ? "Lưu thay đổi" : "Tạo Danh mục"}
                 </button>
               </div>
             </form>

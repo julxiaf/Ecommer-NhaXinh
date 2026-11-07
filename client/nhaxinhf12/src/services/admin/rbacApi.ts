@@ -1,5 +1,6 @@
 import type { RoleDefinition, AdminStaff, AdminAuditLog, PermissionKey } from "./types";
 import { API_BASE } from "../apiEndpoints";
+import { userService } from "../userService";
 
 const API = `${API_BASE}/admin`;
 
@@ -65,18 +66,35 @@ async function readError(response: Response): Promise<string> {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  });
-  if (!response.ok) throw new Error(await readError(response));
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+async function request<T>(path: string, init?: RequestInit, retries = 2): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(`${API}${path}`, {
+        ...init,
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...userService.getAuthHeaders(),
+          ...init?.headers,
+        },
+      });
+      if ((response.status === 502 || response.status === 503 || response.status === 504) && method === "GET" && attempt < retries) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+      if (!response.ok) throw new Error(await readError(response));
+      if (response.status === 204) return undefined as T;
+      return (await response.json()) as T;
+    } catch (err) {
+      if (method === "GET" && attempt < retries && err instanceof TypeError) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Không thể kết nối máy chủ backend.");
 }
 
 const ROLE_NAME_MAP: Record<string, string> = {
@@ -241,25 +259,23 @@ export const rbacApi = {
     );
   },
 
-  // ── 2. QUẢN LÝ TÀI KHOẢN NHÂN SỰ (USERS / STAFF) ──
+  // ── 2. QUẢN LÝ TÀI KHOẢN (USERS / STAFF / CUSTOMERS) ──
   async getStaff(): Promise<AdminStaff[]> {
     const raw = await request<ApiUser[] | ApiPage<ApiUser>>("/users");
     const users = Array.isArray(raw) ? raw : raw.content || [];
-    const internalUsers = users.filter((u) =>
-      (u.roles || []).some((r) => r !== "CUSTOMER")
-    );
-    const listToMap = internalUsers.length > 0 ? internalUsers : users;
 
-    return listToMap.map((u) => {
+    return users.map((u) => {
       const roles = u.roles || [];
       const primaryRole =
         roles.find((r) => r === "ADMIN") ||
+        roles.find((r) => r === "SUPER_ADMIN") ||
         roles.find((r) => r === "MANAGER") ||
         roles.find((r) => r === "SALES") ||
         roles.find((r) => r === "WAREHOUSE") ||
         roles.find((r) => r === "STAFF") ||
+        roles.find((r) => r === "CUSTOMER") ||
         roles[0] ||
-        "STAFF";
+        "CUSTOMER";
 
       return {
         id: String(u.id),

@@ -131,9 +131,6 @@ export default function DashboardView({
             <LayoutDashboard className="text-blue-600" size={24} />
             Tổng quan & Doanh số
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Dữ liệu thống kê thời gian thực từ API đơn hàng và cơ sở dữ liệu nội thất
-          </p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -160,11 +157,11 @@ export default function DashboardView({
             type="button"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all shadow-xs disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all shadow-xs disabled:opacity-60 cursor-pointer"
             title="Đồng bộ dữ liệu mới nhất từ API"
           >
             <RotateCw size={14} className={isRefreshing ? "animate-spin text-blue-600" : ""} />
-            <span>{isRefreshing ? "Đang đồng bộ..." : "Làm mới API"}</span>
+            <span>{isRefreshing ? "Đang đồng bộ..." : "Làm mới"}</span>
           </button>
         </div>
       </div>
@@ -342,7 +339,14 @@ export default function DashboardView({
                     m.recentOrders.map((ord) => (
                       <tr key={ord.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 font-mono font-bold text-blue-600">
-                          {ord.orderCode}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{ord.orderCode}</span>
+                            {(ord.note?.includes("PRE-ORDER") || ord.note?.includes("ĐẶT TRƯỚC") || ord.items?.some((it: any) => it.isPreorder)) && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                Pre-Order
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 font-semibold text-slate-800">
                           {ord.customerName}
@@ -430,9 +434,9 @@ export default function DashboardView({
             </div>
           </div>
 
-          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 leading-relaxed">
+          {/* <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 leading-relaxed">
             <span className="font-bold text-slate-900">💡 Mẹo vận hành:</span> 75% đơn hàng thanh toán trước qua VietQR/VNPAY giúp tối ưu luân chuyển hàng hóa và giảm tỷ lệ hoàn đơn xuống dưới 1.2%.
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

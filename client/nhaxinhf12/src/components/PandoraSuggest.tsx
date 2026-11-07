@@ -25,9 +25,14 @@ export default function PandoraSuggest() {
   const startX = useRef(0);
   const scrollLeftStart = useRef(0);
 
-  // Lắng nghe cập nhật realtime từ Admin Portal
+  // Lắng nghe cập nhật realtime từ Admin Portal & tải cấu hình từ server
   useEffect(() => {
+    clientCmsService.fetchPandoraConfig().then((cfg) => {
+      if (cfg) setConfig(cfg);
+    });
+
     const handleUpdate = () => {
+      setLoading(true);
       setConfig(clientCmsService.getPandoraConfig());
     };
 
@@ -37,42 +42,56 @@ export default function PandoraSuggest() {
     };
   }, []);
 
-  // Gọi dữ liệu từ API Backend theo Tag đang chọn và cấu hình
-  const fetchPandoraProducts = useCallback(async (tag: string, limit: number) => {
+  const handleSelectTag = useCallback((tag: string) => {
     setLoading(true);
-    try {
-      let result: Product[] = [];
-
-      if (tag === "Tất cả") {
-        result = await productService.getProducts({ size: limit });
-        if (!result || result.length === 0) {
-          result = await productService.getFeaturedProducts(limit);
-        }
-      } else {
-        result = await productService.getProducts({ keyword: tag, size: limit });
-        if (!result || result.length === 0) {
-          result = await productService.getProducts({ category: tag, size: limit });
-        }
-      }
-
-      setProducts(result || []);
-    } catch (err) {
-      console.warn("[PandoraSuggest] Lỗi tải sản phẩm từ API:", err);
-      setProducts([]);
-    } finally {
-      setLoading(false);
-      // Reset scroll về đầu khi đổi tag
-      if (sliderRef.current) {
-        sliderRef.current.scrollTo({ left: 0, behavior: "smooth" });
-      }
-    }
+    setSelectedTag(tag);
   }, []);
 
+  // Gọi dữ liệu từ API Backend theo Tag đang chọn và cấu hình
   useEffect(() => {
     if (!config.isEnabled) return;
+    let cancelled = false;
     const limit = config.apiLimit || 8;
-    fetchPandoraProducts(selectedTag, limit);
-  }, [config.isEnabled, config.apiLimit, selectedTag, fetchPandoraProducts]);
+
+    const loadProducts = async () => {
+      try {
+        let result: Product[] = [];
+
+        if (selectedTag === "Tất cả") {
+          result = await productService.getProducts({ size: limit });
+          if (!result || result.length === 0) {
+            result = await productService.getFeaturedProducts(limit);
+          }
+        } else {
+          result = await productService.getProducts({ keyword: selectedTag, size: limit });
+          if (!result || result.length === 0) {
+            result = await productService.getProducts({ category: selectedTag, size: limit });
+          }
+        }
+
+        if (!cancelled) {
+          setProducts(result || []);
+        }
+      } catch (err) {
+        console.warn("[PandoraSuggest] Lỗi tải sản phẩm từ API:", err);
+        if (!cancelled) {
+          setProducts([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          if (sliderRef.current) {
+            sliderRef.current.scrollTo({ left: 0, behavior: "smooth" });
+          }
+        }
+      }
+    };
+
+    void loadProducts();
+    return () => {
+      cancelled = true;
+    };
+  }, [config.isEnabled, config.apiLimit, selectedTag]);
 
   // Cập nhật trạng thái cuộn lướt ngang
   const checkScrollState = useCallback(() => {
@@ -95,11 +114,12 @@ export default function PandoraSuggest() {
     const el = sliderRef.current;
     if (!el) return;
 
-    checkScrollState();
+    const frameId = window.requestAnimationFrame(checkScrollState);
     el.addEventListener("scroll", checkScrollState, { passive: true });
     window.addEventListener("resize", checkScrollState);
 
     return () => {
+      window.cancelAnimationFrame(frameId);
       el.removeEventListener("scroll", checkScrollState);
       window.removeEventListener("resize", checkScrollState);
     };
@@ -164,7 +184,7 @@ export default function PandoraSuggest() {
                 <button
                   key={tag}
                   type="button"
-                  onClick={() => setSelectedTag(tag)}
+                  onClick={() => handleSelectTag(tag)}
                   className={`pandora-tag-pill ${selectedTag === tag ? "active" : ""}`}
                 >
                   {tag}
@@ -237,7 +257,7 @@ export default function PandoraSuggest() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => setSelectedTag("Tất cả")}
+                  onClick={() => handleSelectTag("Tất cả")}
                   className="px-4 py-2 text-xs font-bold bg-[#1a1714] text-white rounded-lg hover:bg-[#b86b49] transition-colors cursor-pointer"
                 >
                   Xem tất cả gợi ý Pandora

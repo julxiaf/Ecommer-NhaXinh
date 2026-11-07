@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -49,15 +50,15 @@ public class AdminProductController extends BaseController {
 
     @GetMapping
     public ResponseEntity<List<ProductDetailResponse>> listProducts(
-            @RequestParam(defaultValue = "false") boolean includeArchived
+            @RequestParam(defaultValue = "false") boolean includeArchived,
+            @RequestParam(defaultValue = "false") boolean includeDeleted
     ) {
-        List<ProductDetailResponse> products = productService.findAdminProducts();
-        if (includeArchived) {
-            return ResponseEntity.ok(products);
-        }
-        return ResponseEntity.ok(products.stream()
-                .filter(product -> !"ARCHIVED".equals(product.status()))
-                .toList());
+        return ResponseEntity.ok(productService.findAdminProducts(includeArchived || includeDeleted));
+    }
+
+    @GetMapping("/trash")
+    public ResponseEntity<List<ProductDetailResponse>> listTrash() {
+        return ResponseEntity.ok(productService.findTrashProducts());
     }
 
     @GetMapping("/{id}")
@@ -68,13 +69,25 @@ public class AdminProductController extends BaseController {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm")));
     }
 
+    @GetMapping("/check-slug")
+    public ResponseEntity<Map<String, Object>> checkSlug(
+            @RequestParam String slug,
+            @RequestParam(required = false) Long excludeId
+    ) {
+        boolean exists = excludeId == null
+                ? productService.existsBySlug(slug)
+                : productService.existsBySlugAndIdNot(slug, excludeId);
+        String suggested = exists ? productService.resolveUniqueSlug(slug, excludeId) : slug;
+        return ResponseEntity.ok(Map.of("exists", exists, "slug", slug, "suggestedSlug", suggested));
+    }
+
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<ProductDetailResponse> createProductFromUrls(
             @Valid @RequestBody CreateProductRequest request,
             @AuthenticationPrincipal UserDetails principal,
             HttpServletRequest httpRequest
     ) {
-        ProductDetailResponse product = productService.createProduct(request, List.of());
+        ProductDetailResponse product = productService.createProduct(request, List.of(), RbacAuditRecorder.actorName(principal));
         log.info("[ADMIN-PRODUCT-CREATE] Admin='{}' (ip={}) tạo sản phẩm id={} name='{}' slug='{}' với {} biến thể",
                 RbacAuditRecorder.actorName(principal), RbacAuditRecorder.clientIp(httpRequest),
                 product.id(), product.name(), product.slug(), product.variants().size());
@@ -94,7 +107,7 @@ public class AdminProductController extends BaseController {
             @AuthenticationPrincipal UserDetails principal,
             HttpServletRequest httpRequest
     ) {
-        ProductDetailResponse product = productService.createProduct(request, mediaFiles);
+        ProductDetailResponse product = productService.createProduct(request, mediaFiles, RbacAuditRecorder.actorName(principal));
         log.info("[ADMIN-PRODUCT-CREATE] Admin='{}' (ip={}) tạo sản phẩm (kèm upload ảnh) id={} name='{}' slug='{}' với {} biến thể",
                 RbacAuditRecorder.actorName(principal), RbacAuditRecorder.clientIp(httpRequest),
                 product.id(), product.name(), product.slug(), product.variants().size());
@@ -170,11 +183,52 @@ public class AdminProductController extends BaseController {
             @AuthenticationPrincipal UserDetails principal,
             HttpServletRequest httpRequest
     ) {
-        productService.setStatus(id, "ARCHIVED");
-        log.warn("[ADMIN-PRODUCT-DELETE] Admin='{}' (ip={}) đã xóa/lưu trữ sản phẩm id={}",
+        productService.softDelete(id);
+        log.warn("[ADMIN-PRODUCT-DELETE] Admin='{}' (ip={}) đã xóa mềm sản phẩm id={}",
                 RbacAuditRecorder.actorName(principal), RbacAuditRecorder.clientIp(httpRequest), id);
         audit.record(principal, httpRequest, "ADMIN_DELETE_PRODUCT", "PRODUCT", id, details(
-                "status", "ARCHIVED"
+                "status", "ARCHIVED",
+                "isDeleted", true
+        ));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}/restore")
+    public ResponseEntity<Void> restoreProduct(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails principal,
+            HttpServletRequest httpRequest
+    ) {
+        productService.restore(id);
+        log.info("[ADMIN-PRODUCT-RESTORE] Admin='{}' (ip={}) đã khôi phục sản phẩm id={}",
+                RbacAuditRecorder.actorName(principal), RbacAuditRecorder.clientIp(httpRequest), id);
+        audit.record(principal, httpRequest, "ADMIN_RESTORE_PRODUCT", "PRODUCT", id, details(
+                "status", "ACTIVE",
+                "isDeleted", false
+        ));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<Void> restoreProductPost(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails principal,
+            HttpServletRequest httpRequest
+    ) {
+        return restoreProduct(id, principal, httpRequest);
+    }
+
+    @DeleteMapping("/{id}/permanent")
+    public ResponseEntity<Void> permanentDeleteProduct(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails principal,
+            HttpServletRequest httpRequest
+    ) {
+        productService.permanentDelete(id);
+        log.warn("[ADMIN-PRODUCT-PERMANENT-DELETE] Admin='{}' (ip={}) đã xóa vĩnh viễn sản phẩm id={}",
+                RbacAuditRecorder.actorName(principal), RbacAuditRecorder.clientIp(httpRequest), id);
+        audit.record(principal, httpRequest, "ADMIN_PERMANENT_DELETE_PRODUCT", "PRODUCT", id, details(
+                "permanent", true
         ));
         return ResponseEntity.noContent().build();
     }

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import {
-  LayoutDashboard, FolderTree, Package, ShoppingCart, Tag,
+  LayoutDashboard, FolderTree, Sparkles, Package, ShoppingCart, Tag,
   MessageSquare, FileText, ShieldCheck, Bell, Users, Settings,
   ChevronLeft, ChevronRight, LogOut, Activity, X, LayoutTemplate
 } from "lucide-react";
@@ -10,6 +10,7 @@ import { hasPermission } from "./PermissionGate";
 export type AdminViewTab =
   | "dashboard"
   | "categories"
+  | "collections"
   | "products"
   | "orders"
   | "discounts"
@@ -30,6 +31,7 @@ interface AdminSidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
   currentRole: RoleDefinition;
+  currentUserName?: string;
   pendingOrdersCount?: number;
   unreadNotifCount?: number;
   openTicketsCount?: number;
@@ -53,6 +55,7 @@ export default function AdminSidebar({
   isMobileOpen = false,
   onCloseMobile,
   currentRole,
+  currentUserName,
   pendingOrdersCount = 0,
   unreadNotifCount = 0,
   openTicketsCount = 0,
@@ -61,6 +64,7 @@ export default function AdminSidebar({
   const navItems: NavItemConfig[] = [
     { id: "dashboard", label: "Tổng quan", icon: LayoutDashboard, permission: "dashboard.view" },
     { id: "categories", label: "Cấu trúc danh mục", icon: FolderTree, permission: "categories.view" },
+    { id: "collections", label: "Bộ sưu tập", icon: Sparkles, permission: "categories.view" },
     { id: "products", label: "Quản lý sản phẩm", icon: Package, permission: "products.view", badge: totalProductsCount },
     {
       id: "orders",
@@ -244,12 +248,12 @@ export default function AdminSidebar({
         }}
       >
         <div className="admin-avatar" title={currentRole.name}>
-          {currentRole.name.slice(0, 2).toUpperCase()}
+          {(currentUserName || currentRole.name).slice(0, 2).toUpperCase()}
         </div>
 
         {!isCollapsed && (
           <div className="admin-user-info">
-            <div className="admin-user-name">Trần Minh Quân</div>
+            <div className="admin-user-name">{currentUserName || "Quản trị viên"}</div>
             <div className="admin-user-role">
               {currentRole.name}
             </div>

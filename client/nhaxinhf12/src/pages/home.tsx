@@ -1,23 +1,47 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import Header from "../components/Headers";
 import Footer from "../components/Footer";
 import { HeroBanner } from "../components/HeroBanner";
 import ProductCard from "../components/ProductCard";
 import type { Product, CategoryItem } from "../types/catalog";
-import { productService } from "../services/productService";
+import { productService, DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
 import { categoryService } from "../services/categoryService";
-import { PRODUCT_GROUPS } from "../util/CONSTRAINT";
+import { ENDPOINTS } from "../services/apiEndpoints";
+import { parseCollectionMeta } from "../services/admin/catalogApi";
 import PandoraSuggest from "../components/PandoraSuggest";
 import { clientCmsService, CMS_EVENTS, type HeroBannerItem } from "../services/clientCmsService";
 import { useStore } from "../hooks/useStore";
 import "./home.css";
-import img from "../assets/image_sequence/ezgif-frame-001.png";
-import img8 from "../assets/image_sequence/ezgif-frame-070.png";
-import img10 from "../assets/image_sequence/ezgif-frame-090.png";
-import img13 from "../assets/image_sequence/ezgif-frame-110.png";
 
+interface HomeCollectionCardItem {
+  id: string;
+  title: string;
+  badge: string;
+  desc: string;
+  image: string;
+  url: string;
+  itemCount: string;
+}
+
+interface BackendCollectionResponse {
+  id: number;
+  name: string;
+  slug: string;
+  description?: string | null;
+  coverImageUrl?: string | null;
+  status?: string | null;
+  isDeleted?: boolean | null;
+  productCount?: number;
+  products?: Array<{
+    id: number;
+    name: string;
+    slug: string;
+    primaryImageUrl?: string | null;
+  }>;
+}
 
 export function HomePage() {
   const { cartCount, wishlist, addToCart, toggleWishlist, isWishlisted, user } = useStore();
@@ -28,83 +52,129 @@ export function HomePage() {
   const touchStartX = useRef<number | null>(null);
 
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Array<CategoryItem | typeof PRODUCT_GROUPS[0]>>(
-    PRODUCT_GROUPS.slice(0, 6)
-  );
+  const featuredSliderRef = useRef<HTMLDivElement>(null);
+  const [canScrollFeaturedLeft, setCanScrollFeaturedLeft] = useState(false);
+  const [canScrollFeaturedRight, setCanScrollFeaturedRight] = useState(true);
+  const [featuredScrollProgress, setFeaturedScrollProgress] = useState(25);
+  const isFeaturedDragging = useRef(false);
+  const featuredDragStartX = useRef(0);
+  const featuredScrollLeftStart = useRef(0);
+  const [collections, setCollections] = useState<HomeCollectionCardItem[]>([]);
+  // const [categories, setCategories] = useState<CategoryItem[]>([]);
 
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      // 1. Lấy sản phẩm nổi bật
-      const featured = await productService.getFeaturedProducts(8);
-      if (featured && featured.length > 0) {
-        setFeaturedProducts(featured);
-      } else {
-        // Fallback sang getProducts nếu cần
-        const prods = await productService.getProducts({ size: 8 });
-        if (prods && prods.length > 0) {
-          setFeaturedProducts(prods.slice(0, 8));
+    const fetchData = async () => {
+      try {
+        // 1. Lấy sản phẩm nổi bật
+        const featured = await productService.getFeaturedProducts(8);
+        if (featured && featured.length > 0) {
+          setFeaturedProducts(featured);
+        } else {
+          // Fallback sang getProducts nếu cần
+          const prods = await productService.getProducts({ size: 8 });
+          if (prods && prods.length > 0) {
+            setFeaturedProducts(prods.slice(0, 8));
+          }
         }
+
+        // 2. Lấy Bộ sưu tập thật từ Backend (/api/v1/collections) & Danh mục
+        const [colRes, cats] = await Promise.all([
+          fetch(ENDPOINTS.COLLECTIONS.BASE, {
+            headers: { "Content-Type": "application/json" },
+          })
+            .then((r) => (r.ok ? (r.json() as Promise<BackendCollectionResponse[]>) : []))
+            .catch(() => [] as BackendCollectionResponse[]),
+          categoryService.getCategories().catch(() => [] as CategoryItem[]),
+        ]);
+
+        const collectionMap = new Map<string, HomeCollectionCardItem>();
+
+        // A) Nạp từ bảng collections (/api/v1/collections)
+        if (Array.isArray(colRes)) {
+          colRes
+            .filter(
+              (c) =>
+                !c.isDeleted &&
+                c.status?.toUpperCase() !== "DRAFT" &&
+                c.status?.toUpperCase() !== "ARCHIVED" &&
+                !c.name?.toLowerCase().includes("test") &&
+                !c.slug?.toLowerCase().includes("test")
+            )
+            .forEach((c) => {
+              const { cleanDescription, meta } = parseCollectionMeta(c.description);
+              const count = c.productCount ?? c.products?.length ?? 0;
+              collectionMap.set(c.slug, {
+                id: String(c.id || c.slug),
+                title: c.name,
+                badge: meta.styleTag || "Bộ sưu tập Nhà Xinh",
+                desc:
+                  cleanDescription ||
+                  meta.subtitle ||
+                  `Khám phá không gian nội thất tinh tế thuộc ${c.name}.`,
+                image:
+                  c.coverImageUrl ||
+                  c.products?.[0]?.primaryImageUrl ||
+                  DEFAULT_PLACEHOLDER_IMAGE,
+                url: `/bo-suu-tap/${c.slug}`,
+                itemCount: count > 0 ? `${count} sản phẩm` : "Khám phá ngay",
+              });
+            });
+        }
+
+        // B) Bổ sung các Bộ sưu tập lưu trong bảng categories (categoryGroup === 'COLLECTION')
+        if (Array.isArray(cats) && cats.length > 0) {
+          cats
+            .filter(
+              (c) =>
+                (c.isCollection || c.categoryGroup === "COLLECTION") &&
+                c.slug !== "bo-suu-tap" &&
+                !c.name?.toLowerCase().includes("test") &&
+                !c.slug?.toLowerCase().includes("test")
+            )
+            .forEach((c) => {
+              if (!collectionMap.has(c.slug)) {
+                collectionMap.set(c.slug, {
+                  id: String(c.id || c.slug),
+                  title: c.name,
+                  badge: "Bộ sưu tập Nhà Xinh",
+                  desc:
+                    c.description ||
+                    `Khám phá không gian nội thất tinh tế thuộc ${c.name}.`,
+                  image: c.imageUrl || DEFAULT_PLACEHOLDER_IMAGE,
+                  url: `/bo-suu-tap/${c.slug}`,
+                  itemCount:
+                    c.productCount && c.productCount > 0
+                      ? `${c.productCount} sản phẩm`
+                      : "Khám phá ngay",
+                });
+              }
+            });
+        }
+
+        // Chỉ hiển thị tối đa 4 Bộ sưu tập ở trang chủ
+        setCollections(Array.from(collectionMap.values()).slice(0, 4));
+      } catch (error) {
+        console.error("Lỗi khi tải dữ liệu trang chủ:", error);
       }
+    };
 
-      // 2. Lấy danh mục
-      const cats = await categoryService.getCategories();
-      if (cats && cats.length > 0) {
-        setCategories(cats.slice(0, 6));
-      }
-    } catch (error) {
-      console.error("Lỗi khi tải dữ liệu trang chủ:", error);
-    }
-  };
-
-  fetchData();
-}, []);
-
-  const collections = [
-    {
-      id: "victoria",
-      title: "Bộ sưu tập Victoria",
-      badge: "Xu hướng 2024",
-      desc: "Cảm hứng đồng quê Pháp lãng mạn kết hợp cùng đường cong mềm mại và sắc gỗ trầm ấm cho không gian sống vương giả.",
-      image: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80",
-      url: "/bo-suu-tap",
-      itemCount: "24 sản phẩm",
-    },
-    {
-      id: "net-duong-dai",
-      title: "Bộ sưu tập Nét Đương Đại",
-      badge: "Bán chạy nhất",
-      desc: "Thiết kế tinh giản, chuẩn mực công năng và vẻ đẹp đương đại dành cho những căn hộ cao cấp & biệt thự phố hiện đại.",
-      image: "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=800&q=80",
-      url: "/bo-suu-tap",
-      itemCount: "32 sản phẩm",
-    },
-    {
-      id: "osaka-japandi",
-      title: "Bộ sưu tập Osaka (Japandi)",
-      badge: "Phong cách tối giản",
-      desc: "Sự kết hợp hoàn mỹ giữa triết lý Wabi-Sabi Nhật Bản và chất liệu gỗ sồi tự nhiên Bắc Âu mộc mạc, tĩnh tại.",
-      image: "https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=800&q=80",
-      url: "/bo-suu-tap",
-      itemCount: "18 sản phẩm",
-    },
-    {
-      id: "coastal-living",
-      title: "Bộ sưu tập Coastal Living",
-      badge: "Độc quyền Nhà Xinh",
-      desc: "Mang làn gió biển khơi trong lành và nguồn năng lượng thư thái vào từng góc nhỏ của ngôi nhà thân yêu.",
-      image: "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-      url: "/bo-suu-tap",
-      itemCount: "15 sản phẩm",
-    },
-  ];
+    fetchData();
+  }, []);
 
   // ── CMS Hero Banners State ──
   const [banners, setBanners] = useState<HeroBannerItem[]>(() =>
     clientCmsService.getHeroBanners().filter((b) => b.isActive)
   );
 
+
   useEffect(() => {
+    clientCmsService.fetchHeroBanners().then((items) => {
+      const active = items.filter((b) => b.isActive);
+      if (active.length > 0) {
+        setBanners(active);
+      }
+    });
+
     const handleBannersUpdate = () => {
       const updated = clientCmsService.getHeroBanners().filter((b) => b.isActive);
       setBanners(updated.length > 0 ? updated : clientCmsService.resetHeroBanners());
@@ -117,79 +187,158 @@ export function HomePage() {
     };
   }, []);
 
-  const databanner = banners.length > 0 ? banners : [
+  const databanner: Array<{
+    id?: string;
+    subtitle: string;
+    title: string;
+    description: string;
+    backgroundImage: string;
+    mediaType?: "image" | "video";
+    videoUrl?: string;
+    actions: Array<{ url: string; label: string; isPrimary?: boolean }>;
+    isActive?: boolean;
+  }> = banners.length > 0 ? banners : [
     {
-      subtitle: "BỘ SƯU TẬP MỚI",
-      title: "Victoria",
-      description:
-        "Từ cảm hứng miền quê Pháp đến cảm xúc ngôi nhà Việt với đường cong mềm mại và tông màu ấm áp.",
-      backgroundImage: img,
-      actions: [{ url: "/bo-suu-tap/victoria", label: "Khám phá ngay" }],
-    },
-    {
-      subtitle: "BỘ SƯU TẬP",
-      title: "Nét Đương Đại",
-      description:
-        "Thiết kế tinh giản, hiện đại và phù hợp với những không gian sống trẻ trung.",
-      backgroundImage: img8,
-      actions: [
-        { url: "/bo-suu-tap/net-duong-dai", label: "Khám phá" },
-        { url: "/products", label: "Xem sản phẩm" },
-      ],
-    },
-    {
-      subtitle: "PHÒNG KHÁCH",
-      title: "Không gian kết nối",
-      description:
-        "Những thiết kế sofa và bàn ghế mang đến sự thoải mái và tinh tế cho phòng khách.",
-      backgroundImage: img10,
-      actions: [{ url: "/category/sofa", label: "Xem sofa" }],
-    },
-    {
-      subtitle: "PHÒNG NGỦ",
-      title: "Chạm vào sự thư thái",
-      description:
-        "Kiến tạo không gian nghỉ ngơi ấm áp với những thiết kế nội thất phòng ngủ tinh tế.",
-      backgroundImage: img13,
-      actions: [{ url: "/category/phong-ngu", label: "Khám phá phòng ngủ" }],
+      subtitle: "NỘI THẤT NHÀ XINH",
+      title: "Không Gian Sống Tinh Tế & Hiện Đại",
+      description: "Trải nghiệm không gian sống đẳng cấp với những bộ sưu tập nội thất tinh hoa, chất liệu gỗ tự nhiên bền vững.",
+      backgroundImage: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1400&q=80",
+      actions: [{ url: "/san-pham", label: "Khám phá ngay" }],
+      isActive: true,
     },
   ];
 
+  // Danh mục không gian tuyển chọn (Chuẩn minimalist nhaxinh.com)
+  const curatedRooms = [
+    {
+      title: "Phòng khách",
+      to: "/phong/phong-khach",
+      image: "/images/rooms/phong-khach.jpg",
+    },
+    {
+      title: "Phòng ăn",
+      to: "/phong/phong-an",
+      image: "/images/rooms/phong-an.jpg",
+    },
+    {
+      title: "Phòng ngủ",
+      to: "/phong/phong-ngu",
+      image: "/images/rooms/phong-ngu.jpg",
+    },
+    {
+      title: "Phòng làm việc",
+      to: "/phong/phong-lam-viec",
+      image: "/images/rooms/phong-lam-viec.jpg",
+    },
+  ];
+
+  const activeBanners = databanner.filter((b) => b.isActive !== false);
+  const hasMultipleBanners = activeBanners.length > 1;
+  const currentBanner = activeBanners[activeIndex] || activeBanners[0] || databanner[0];
+
   useEffect(() => {
-    // Tự chuyển slide sau mỗi 5 giây; dọn interval khi component bị unmount.
+    // Chỉ tự chuyển slide sau mỗi 5 giây khi có TỪ 2 SLIDE TRỞ LÊN
+    if (!hasMultipleBanners) return;
+
     const timer = window.setInterval(() => {
       setSlideDirection("next");
-      setActiveIndex((prev) => (prev + 1) % databanner.length);
+      setActiveIndex((prev) => (prev + 1) % activeBanners.length);
     }, 5000);
 
     return () => window.clearInterval(timer);
-  }, [databanner.length]);
+  }, [hasMultipleBanners, activeBanners.length]);
 
   const moveSlide = (direction: "next" | "previous") => {
+    if (!hasMultipleBanners) return;
     setSlideDirection(direction);
     setActiveIndex((prev) =>
       direction === "next"
-        ? (prev + 1) % databanner.length
-        : (prev - 1 + databanner.length) % databanner.length,
+        ? (prev + 1) % activeBanners.length
+        : (prev - 1 + activeBanners.length) % activeBanners.length,
     );
   };
 
   const goToSlide = (index: number) => {
+    if (!hasMultipleBanners || index === activeIndex) return;
     // Chọn hướng animation theo vị trí slide mới so với slide hiện tại.
-    if (index === activeIndex) return;
     setSlideDirection(index > activeIndex ? "next" : "previous");
     setActiveIndex(index);
+  };
+
+  // ── Điều khiển Carousel trượt ngang Sản phẩm nổi bật ──
+  const checkFeaturedScroll = useCallback(() => {
+    const el = featuredSliderRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanScrollFeaturedLeft(scrollLeft > 10);
+    setCanScrollFeaturedRight(scrollLeft + clientWidth < scrollWidth - 10);
+    const maxScroll = scrollWidth - clientWidth;
+    if (maxScroll > 0) {
+      setFeaturedScrollProgress(Math.min(100, Math.max(15, (scrollLeft / maxScroll) * 100)));
+    } else {
+      setFeaturedScrollProgress(100);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = featuredSliderRef.current;
+    if (!el) return;
+    const frameId = window.requestAnimationFrame(checkFeaturedScroll);
+    el.addEventListener("scroll", checkFeaturedScroll, { passive: true });
+    window.addEventListener("resize", checkFeaturedScroll);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      el.removeEventListener("scroll", checkFeaturedScroll);
+      window.removeEventListener("resize", checkFeaturedScroll);
+    };
+  }, [featuredProducts, checkFeaturedScroll]);
+
+  const scrollFeatured = (direction: "left" | "right") => {
+    const el = featuredSliderRef.current;
+    if (!el) return;
+    const firstItem = el.firstElementChild as HTMLElement | null;
+    const step = firstItem ? firstItem.offsetWidth + 24 : Math.max(280, el.clientWidth * 0.5);
+    el.scrollBy({
+      left: direction === "left" ? -step * 2 : step * 2,
+      behavior: "smooth",
+    });
+  };
+
+  const handleFeaturedMouseDown = (e: React.MouseEvent) => {
+    const el = featuredSliderRef.current;
+    if (!el) return;
+    isFeaturedDragging.current = true;
+    featuredDragStartX.current = e.pageX - el.offsetLeft;
+    featuredScrollLeftStart.current = el.scrollLeft;
+  };
+
+  const handleFeaturedMouseMove = (e: React.MouseEvent) => {
+    if (!isFeaturedDragging.current) return;
+    const el = featuredSliderRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - featuredDragStartX.current) * 1.4;
+    el.scrollLeft = featuredScrollLeftStart.current - walk;
+  };
+
+  const handleFeaturedMouseUpOrLeave = () => {
+    isFeaturedDragging.current = false;
   };
 
   return (
     <>
       <Header user={user} cartCount={cartCount} wishlistCount={wishlist.length} />
+      
+      {/* ── 1. Hero Banner: Hỗ trợ linh hoạt Video / 1 Ảnh tĩnh hoặc Nhiều ảnh Carousel ── */}
       <div
-        className="hero-slider"
+        className={`hero-slider ${!hasMultipleBanners ? "hero-slider-single" : ""}`}
         onTouchStart={(event) => {
+          if (!hasMultipleBanners) return;
           touchStartX.current = event.touches[0]?.clientX ?? null;
         }}
         onTouchEnd={(event) => {
+          if (!hasMultipleBanners) return;
           const startX = touchStartX.current;
           const endX = event.changedTouches[0]?.clientX;
           touchStartX.current = null;
@@ -202,60 +351,155 @@ export function HomePage() {
         }}
       >
         <HeroBanner
-          key={`${databanner[activeIndex].title}-${activeIndex}`}
-          {...databanner[activeIndex]}
-          className={`hero-slide-${slideDirection}`}
+          key={`${currentBanner.title}-${activeIndex}`}
+          {...currentBanner}
+          className={hasMultipleBanners ? `hero-slide-${slideDirection}` : ""}
         />
-        <button
-          type="button"
-          className="hero-slider-arrow hero-slider-arrow-previous"
-          aria-label="Xem slide trước"
-          onClick={() => moveSlide("previous")}
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          className="hero-slider-arrow hero-slider-arrow-next"
-          aria-label="Xem slide tiếp theo"
-          onClick={() => moveSlide("next")}
-        >
-          ›
-        </button>
-        <div className="hero-slider-dots" aria-label="Chọn slide">
-          {databanner.map((banner, index) => (
+
+        {/* Nút điều hướng và Dots chỉ hiển thị khi có từ 2 banner trở lên */}
+        {hasMultipleBanners && (
+          <>
             <button
-              key={banner.title}
               type="button"
-              className={`hero-slider-dot ${index === activeIndex ? "active" : ""}`}
-              aria-label={`Chuyển đến slide ${index + 1}: ${banner.title}`}
-              aria-current={index === activeIndex ? "true" : undefined}
-              onClick={() => goToSlide(index)}
-            />
-          ))}
-        </div>
+              className="hero-slider-arrow hero-slider-arrow-previous"
+              aria-label="Xem slide trước"
+              onClick={() => moveSlide("previous")}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="hero-slider-arrow hero-slider-arrow-next"
+              aria-label="Xem slide tiếp theo"
+              onClick={() => moveSlide("next")}
+            >
+              ›
+            </button>
+            <div className="hero-slider-dots" aria-label="Chọn slide">
+              {activeBanners.map((banner, index) => (
+                <button
+                  key={`${banner.title}-${index}`}
+                  type="button"
+                  className={`hero-slider-dot ${index === activeIndex ? "active" : ""}`}
+                  aria-label={`Chuyển đến slide ${index + 1}: ${banner.title}`}
+                  aria-current={index === activeIndex ? "true" : undefined}
+                  onClick={() => goToSlide(index)}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ── Featured Products ── */}
-      <section className="home-section">
+      {/* ── 2. Lưới thẻ ảnh danh mục không gian (Tối giản ít chữ, ảnh lớn) ── */}
+      <section className="home-category-grid-section">
+        <div className="home-category-grid">
+          {curatedRooms.map((room) => (
+            <Link
+              key={room.to}
+              to={room.to}
+              className="home-category-card"
+            >
+              <div className="home-category-image-wrap">
+                <img
+                  src={room.image}
+                  alt={room.title}
+                  className="home-category-card-img"
+                  loading="lazy"
+                />
+              </div>
+              <div className="home-category-content">
+                <h3 className="home-category-title">{room.title}</h3>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Featured Products (Horizontal Carousel 4 sản phẩm kiểu nhaxinh.com) ── */}
+      <section className="home-section home-featured-carousel-section">
         <div className="home-section-header">
           <div>
             <h2 className="home-section-title">Sản phẩm nổi bật</h2>
             <p className="home-section-sub">Những thiết kế được yêu thích nhất</p>
           </div>
-          <Link to="/san-pham" className="home-view-all">Xem tất cả →</Link>
+          <div className="home-featured-header-actions">
+            <div className="home-featured-nav-btns">
+              <button
+                type="button"
+                onClick={() => scrollFeatured("left")}
+                disabled={!canScrollFeaturedLeft}
+                className="home-featured-header-arrow"
+                aria-label="Trượt sang trái"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollFeatured("right")}
+                disabled={!canScrollFeaturedRight}
+                className="home-featured-header-arrow"
+                aria-label="Trượt sang phải"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+            <Link to="/san-pham" className="home-view-all">
+              Xem tất cả →
+            </Link>
+          </div>
         </div>
-        <div className="home-product-grid">
-          {featuredProducts.map((p) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              onAddToCart={addToCart}
-              onToggleWishlist={toggleWishlist}
-              isWishlisted={isWishlisted(p.id)}
+
+        <div className="home-featured-slider-wrap">
+          <button
+            type="button"
+            onClick={() => scrollFeatured("left")}
+            disabled={!canScrollFeaturedLeft}
+            className={`home-featured-float-arrow left ${!canScrollFeaturedLeft ? "is-disabled" : ""}`}
+            aria-label="Xem sản phẩm trước"
+          >
+            <ChevronLeft size={20} />
+          </button>
+
+          <div
+            ref={featuredSliderRef}
+            className="home-featured-slider-track"
+            onMouseDown={handleFeaturedMouseDown}
+            onMouseMove={handleFeaturedMouseMove}
+            onMouseUp={handleFeaturedMouseUpOrLeave}
+            onMouseLeave={handleFeaturedMouseUpOrLeave}
+          >
+            {featuredProducts.map((p) => (
+              <div key={p.id} className="home-featured-slide-item">
+                <ProductCard
+                  product={p}
+                  onAddToCart={addToCart}
+                  onToggleWishlist={toggleWishlist}
+                  isWishlisted={isWishlisted(p.id)}
+                />
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => scrollFeatured("right")}
+            disabled={!canScrollFeaturedRight}
+            className={`home-featured-float-arrow right ${!canScrollFeaturedRight ? "is-disabled" : ""}`}
+            aria-label="Xem sản phẩm tiếp theo"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+
+        {featuredProducts.length > 4 && (
+          <div className="home-featured-progress-track">
+            <div
+              className="home-featured-progress-bar"
+              style={{ width: `${featuredScrollProgress}%` }}
             />
-          ))}
-        </div>
+          </div>
+        )}
       </section>
 
       {/* ── Collections (Bộ sưu tập) ── */}
@@ -269,7 +513,7 @@ export function HomePage() {
         </div>
 
         <div className="home-collection-grid">
-          {collections.map((col) => (
+          {collections.slice(0, 4).map((col) => (
             <Link
               key={col.id}
               to={col.url}
@@ -293,7 +537,7 @@ export function HomePage() {
       <PandoraSuggest />
 
       {/* ── Categories ── */}
-      <section className="home-section home-categories">
+      {/* <section className="home-section home-categories">
         <div className="home-section-header">
           <div>
             <h2 className="home-section-title">Danh mục sản phẩm</h2>
@@ -302,12 +546,8 @@ export function HomePage() {
         </div>
         <div className="home-cat-grid">
           {categories.map((cat) => {
-            const title = "title" in cat && cat.title ? cat.title : ("name" in cat ? cat.name : "Danh mục");
-            const count = "productCount" in cat && cat.productCount
-              ? `${cat.productCount} sản phẩm`
-              : "items" in cat && cat.items?.length
-              ? `${cat.items.length} sản phẩm`
-              : "Khám phá ngay";
+            const title = cat.name || "Danh mục";
+            const count = cat.productCount ? `${cat.productCount} sản phẩm` : (cat.items && cat.items.length ? `${cat.items.length} sản phẩm` : "Khám phá ngay");
 
             return (
               <Link key={cat.to} to={cat.to} className="home-cat-card">
@@ -318,7 +558,7 @@ export function HomePage() {
             );
           })}
         </div>
-      </section>
+      </section> */}
 
       <Footer />
     </>

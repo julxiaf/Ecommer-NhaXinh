@@ -40,22 +40,34 @@ public class AuthController {
     private final UserService userService;
     private final AuditLogService auditLogService;
     private final NotificationService notificationService;
+    private final JwtService jwtService;
 
-    // Cache mã OTP tạm thời cho luồng Quên mật khẩu: email -> {token, expireTime}
+    // Thời gian sống của mã OTP quên mật khẩu: 3 phút (180 giây)
+    private static final long OTP_TTL_SECONDS = 180L;
+    // Khoảng cách tối thiểu chống spam bấm liên tục: 20 giây
+    private static final long OTP_MIN_RESEND_INTERVAL_SECONDS = 20L;
+
+    // Cache mã OTP tạm thời cho luồng Quên mật khẩu: email -> {token, createdAt, expiresAt, invalidatedTokens}
     private static final java.util.concurrent.ConcurrentHashMap<String, ResetTokenInfo> resetTokens = new java.util.concurrent.ConcurrentHashMap<>();
 
-    private record ResetTokenInfo(String token, java.time.LocalDateTime expiresAt) {}
+    private record ResetTokenInfo(
+            String token,
+            java.time.LocalDateTime createdAt,
+            java.time.LocalDateTime expiresAt,
+            Set<String> invalidatedTokens) {}
 
     public AuthController(
             AuthenticationManager authenticationManager,
             SecurityContextRepository securityContextRepository,
             UserService userService,
             AuditLogService auditLogService,
+            JwtService jwtService,
             @org.springframework.beans.factory.annotation.Autowired(required = false) NotificationService notificationService) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.userService = userService;
         this.auditLogService = auditLogService;
+        this.jwtService = jwtService;
         this.notificationService = notificationService;
     }
 
@@ -117,6 +129,8 @@ public class AuthController {
                     .collect(Collectors.toSet());
         }
 
+        String jwtToken = jwtService.generateToken(user, roles, permissions);
+
         return new SessionResponse(
                 true,
                 user != null ? user.getId() : null,
@@ -127,7 +141,9 @@ public class AuthController {
                 user != null ? user.getAccountType() : null,
                 user != null ? user.getStatus() : null,
                 roles,
-                permissions
+                permissions,
+                jwtToken,
+                jwtService.getExpirationSeconds()
         );
     }
 
@@ -140,13 +156,16 @@ public class AuthController {
             @Valid @RequestBody LoginRequest credentials,
             HttpServletRequest request,
             HttpServletResponse response) {
-        String username = credentials.username().trim();
+        String loginIdentifier = credentials.getLoginIdentifier();
+        if (loginIdentifier.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email không được để trống."));
+        }
         String clientIp = resolveClientIp(request);
 
         try {
             Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(
-                            username,
+                            loginIdentifier,
                             credentials.password()));
 
             request.getSession(true);
@@ -156,9 +175,11 @@ public class AuthController {
             SecurityContextHolder.setContext(context);
             securityContextRepository.saveContext(context, request, response);
 
-            // Tìm user để ghi nhật ký audit log và trả thông tin đầy đủ
-            User dbUser = userService.findByUsername(authentication.getName()).orElse(null);
-            log.info("[AUTH] Đăng nhập thành công | user={} | ip={}", username, clientIp);
+            // Tìm user theo username hoặc email để ghi nhật ký audit log và trả thông tin đầy đủ
+            User dbUser = userService.findByUsername(authentication.getName())
+                    .or(() -> userService.findByEmail(loginIdentifier.toLowerCase()))
+                    .orElse(null);
+            log.info("[AUTH] Đăng nhập thành công | user={} | identifier={} | ip={}", authentication.getName(), loginIdentifier, clientIp);
             auditLogService.record(dbUser, "LOGIN_SUCCESS", "AUTH",
                     dbUser != null ? dbUser.getId().toString() : "N/A",
                     "{\"message\":\"Đăng nhập thành công\"}", clientIp);
@@ -173,6 +194,14 @@ public class AuthController {
                     .map(GrantedAuthority::getAuthority)
                     .filter(auth -> !auth.startsWith("ROLE_"))
                     .collect(Collectors.toSet());
+
+            String jwtToken = jwtService.generateToken(dbUser, roles, permissions);
+            jakarta.servlet.http.Cookie jwtCookie = new jakarta.servlet.http.Cookie(JwtAuthenticationFilter.JWT_COOKIE_NAME, jwtToken);
+            jwtCookie.setHttpOnly(true);
+            jwtCookie.setPath("/");
+            jwtCookie.setMaxAge((int) jwtService.getExpirationSeconds());
+            response.addCookie(jwtCookie);
+
             return ResponseEntity.ok(new SessionResponse(
                     true,
                     dbUser != null ? dbUser.getId() : null,
@@ -183,19 +212,21 @@ public class AuthController {
                     dbUser != null ? dbUser.getAccountType() : null,
                     dbUser != null ? dbUser.getStatus() : null,
                     roles,
-                    permissions
+                    permissions,
+                    jwtToken,
+                    jwtService.getExpirationSeconds()
             ));
 
         } catch (AuthenticationException exception) {
             SecurityContextHolder.clearContext();
-            log.warn("[AUTH] Đăng nhập thất bại | user={} | ip={} | lý do={}",
-                    username, clientIp, exception.getClass().getSimpleName());
+            log.warn("[AUTH] Đăng nhập thất bại | identifier={} | ip={} | lý do={}",
+                    loginIdentifier, clientIp, exception.getClass().getSimpleName());
             String failReason = exception.getClass().getSimpleName();
-            auditLogService.record(null, "LOGIN_FAILED", "AUTH", username,
+            auditLogService.record(null, "LOGIN_FAILED", "AUTH", loginIdentifier,
                     "{\"message\":\"Đăng nhập thất bại\",\"reason\":\"" + failReason + "\"}", clientIp);
 
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "Tên đăng nhập hoặc mật khẩu không đúng."));
+                    .body(Map.of("message", "Email hoặc mật khẩu không chính xác."));
         }
     }
 
@@ -212,7 +243,7 @@ public class AuthController {
 
         try {
             User created = userService.registerUser(
-                    request.username() != null ? request.username().trim() : null,
+                    null,
                     request.password(),
                     request.email() != null ? request.email().trim().toLowerCase() : null,
                     request.phone() != null ? request.phone().trim() : null,
@@ -300,33 +331,98 @@ public class AuthController {
             @Valid @RequestBody ForgotPasswordRequest request,
             HttpServletRequest httpRequest) {
         String clientIp = resolveClientIp(httpRequest);
-        String email = request.email().trim().toLowerCase();
+        String email = request.email() != null ? request.email().trim().toLowerCase() : "";
+        if (email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "code", "EMAIL_REQUIRED",
+                    "message", "Vui lòng nhập địa chỉ email đã đăng ký."
+            ));
+        }
 
         var userOpt = userService.findByEmail(email);
-        if (userOpt.isEmpty()) {
-            // Trả về thông báo chung để tránh rò rỉ việc email có tồn tại hay không
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Nếu email của bạn đã đăng ký trên hệ thống, mã xác thực sẽ được gửi đến hộp thư."
+        if (userOpt.isEmpty()
+                || email.endsWith("@guest.nhaxinh.com")
+                || "GUEST".equalsIgnoreCase(userOpt.get().getAccountType())) {
+            log.warn("[AUTH] Yêu cầu quên mật khẩu thất bại: Email '{}' chưa đăng ký trên hệ thống | ip={}", email, clientIp);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "code", "EMAIL_NOT_REGISTERED",
+                    "message", "Email này chưa được đăng ký trên hệ thống. Vui lòng kiểm tra lại hoặc đăng ký tài khoản mới."
             ));
         }
 
         User user = userOpt.get();
-        // Sinh mã OTP ngẫu nhiên 6 chữ số
-        String token = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
-        resetTokens.put(email, new ResetTokenInfo(token, java.time.LocalDateTime.now().plusMinutes(15)));
+        if ("LOCKED".equalsIgnoreCase(user.getStatus())
+                || "BANNED".equalsIgnoreCase(user.getStatus())
+                || "INACTIVE".equalsIgnoreCase(user.getStatus())) {
+            log.warn("[AUTH] Yêu cầu quên mật khẩu bị từ chối: Tài khoản '{}' đang ở trạng thái {} | ip={}",
+                    email, user.getStatus(), clientIp);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "code", "ACCOUNT_DISABLED",
+                    "message", "Tài khoản gắn với email này hiện đang bị khóa hoặc ngừng hoạt động."
+            ));
+        }
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        ResetTokenInfo existingToken = resetTokens.get(email);
+        Set<String> invalidated = new java.util.HashSet<>();
+
+        if (existingToken != null) {
+            long secondsSinceLast = java.time.Duration.between(existingToken.createdAt(), now).getSeconds();
+            if (secondsSinceLast >= 0 && secondsSinceLast < OTP_MIN_RESEND_INTERVAL_SECONDS) {
+                long waitSeconds = OTP_MIN_RESEND_INTERVAL_SECONDS - secondsSinceLast;
+                log.warn("[AUTH] Chặn spam OTP cho email '{}' (còn {}s cooldown) | ip={}", email, waitSeconds, clientIp);
+                return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of(
+                        "success", false,
+                        "code", "OTP_SPAM_COOLDOWN",
+                        "field", "forgotEmail",
+                        "retryAfterSeconds", waitSeconds,
+                        "message", "Bạn vừa yêu cầu mã OTP. Vui lòng đợi " + waitSeconds + " giây trước khi lấy mã mới."
+                ));
+            }
+            if (existingToken.invalidatedTokens() != null) {
+                invalidated.addAll(existingToken.invalidatedTokens());
+            }
+            invalidated.add(existingToken.token());
+        }
+
+        // Sinh mã OTP ngẫu nhiên 6 chữ số mới (đảm bảo khác mã vừa cấp trước đó)
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        String token;
+        do {
+            token = String.format("%06d", random.nextInt(1_000_000));
+        } while (invalidated.contains(token));
+
+        resetTokens.put(email, new ResetTokenInfo(
+                token,
+                now,
+                now.plusSeconds(OTP_TTL_SECONDS),
+                Set.copyOf(invalidated)
+        ));
 
         if (notificationService != null) {
-            notificationService.sendPasswordResetEmail(email, user.getFullName(), token);
+            var emailLog = notificationService.sendPasswordResetEmail(email, user.getFullName(), token);
+            if (emailLog != null && "FAILED".equalsIgnoreCase(emailLog.getSendStatus())) {
+                log.error("[AUTH] Gửi email OTP đặt lại mật khẩu thất bại cho {}: {}", email, emailLog.getErrorMessage());
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                        "success", false,
+                        "code", "EMAIL_SEND_FAILED",
+                        "message", "Không thể gửi mã xác thực tới email lúc này. Vui lòng thử lại sau."
+                ));
+            }
         }
 
         auditLogService.record(user, "FORGOT_PASSWORD_REQUEST", "AUTH", user.getId().toString(),
-                "{\"message\":\"Yêu cầu đặt lại mật khẩu\"}", clientIp);
+                "{\"message\":\"Yêu cầu đặt lại mật khẩu (OTP 3 phút)\"}", clientIp);
 
-        log.info("[AUTH] Gửi mã đặt lại mật khẩu | email={} | ip={}", email, clientIp);
+        log.info("[AUTH] Gửi mã đặt lại mật khẩu (hiệu lực 3 phút) | email={} | ip={}", email, clientIp);
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", "Mã xác thực đặt lại mật khẩu đã được gửi đến email của bạn."
+                "expiresInSeconds", OTP_TTL_SECONDS,
+                "resendCooldownSeconds", OTP_MIN_RESEND_INTERVAL_SECONDS,
+                "message", "Mã xác thực OTP (6 chữ số, có hiệu lực trong 3 phút) đã được gửi đến email của bạn."
         ));
     }
 
@@ -336,20 +432,45 @@ public class AuthController {
             HttpServletRequest httpRequest) {
         String clientIp = resolveClientIp(httpRequest);
         String email = request.email().trim().toLowerCase();
+        String submittedOtp = request.token() != null ? request.token().trim() : "";
 
         ResetTokenInfo tokenInfo = resetTokens.get(email);
-        if (tokenInfo == null || !tokenInfo.token().equals(request.token().trim())) {
+        if (tokenInfo == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "success", false,
-                    "message", "Mã xác thực không hợp lệ hoặc đã hết hạn."
+                    "code", "OTP_EXPIRED",
+                    "field", "otp",
+                    "message", "Mã OTP không tồn tại hoặc đã hết thời gian hiệu lực (3 phút). Vui lòng lấy lại mã OTP mới."
             ));
         }
 
+        // Nếu người dùng nhập mã OTP cũ đã bị thay thế bởi lần lấy mã mới sau đó
+        if (tokenInfo.invalidatedTokens() != null && tokenInfo.invalidatedTokens().contains(submittedOtp)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "success", false,
+                    "code", "OTP_SUPERSEDED",
+                    "field", "otp",
+                    "message", "Mã OTP cũ không còn hợp lệ do bạn đã yêu cầu mã mới. Chỉ mã OTP mới nhất mới có hiệu lực."
+            ));
+        }
+
+        // Kiểm tra thời gian sống 3 phút của mã OTP
         if (tokenInfo.expiresAt().isBefore(java.time.LocalDateTime.now())) {
             resetTokens.remove(email);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "success", false,
-                    "message", "Mã xác thực đã hết hạn (chỉ có hiệu lực trong 15 phút)."
+                    "code", "OTP_EXPIRED",
+                    "field", "otp",
+                    "message", "Mã xác thực OTP đã quá thời gian hiệu lực (3 phút). Vui lòng bấm lấy lại mã OTP mới."
+            ));
+        }
+
+        if (!tokenInfo.token().equals(submittedOtp)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "success", false,
+                    "code", "OTP_INVALID",
+                    "field", "otp",
+                    "message", "Mã xác thực OTP không chính xác. Vui lòng kiểm tra lại."
             ));
         }
 
@@ -412,21 +533,40 @@ public class AuthController {
 
     // Records
     public record LoginRequest(
-            @NotBlank(message = "Tên đăng nhập không được để trống") String username,
-
+            String email,
+            String username,
             @NotBlank(message = "Mật khẩu không được để trống") String password) {
+
+        public String getLoginIdentifier() {
+            if (email != null && !email.isBlank()) {
+                return email.trim().toLowerCase();
+            }
+            if (username != null && !username.isBlank()) {
+                return username.trim();
+            }
+            return "";
+        }
     }
 
     public record RegisterRequest(
-            @Size(min = 4, max = 100, message = "Tên đăng nhập phải từ 4-100 ký tự") @Pattern(regexp = "^[a-zA-Z0-9_.]+$", message = "Tên đăng nhập chỉ được chứa chữ cái, số, dấu chấm và gạch dưới") String username,
+            String username,
 
-            @NotBlank(message = "Mật khẩu không được để trống") @Size(min = 8, max = 255, message = "Mật khẩu phải có ít nhất 8 ký tự") String password,
+            @NotBlank(message = "Mật khẩu không được để trống")
+            @Size(min = 8, max = 255, message = "Mật khẩu phải có ít nhất 8 ký tự")
+            String password,
 
-            @Email(message = "Địa chỉ email không hợp lệ") @Size(max = 254) String email,
+            @NotBlank(message = "Địa chỉ email không được để trống")
+            @Email(message = "Địa chỉ email không hợp lệ")
+            @Size(max = 254)
+            String email,
 
-            @Pattern(regexp = "^(0|\\+84)[0-9]{8,10}$", message = "Số điện thoại không đúng định dạng Việt Nam") String phone,
+            @NotBlank(message = "Số điện thoại không được để trống")
+            @Pattern(regexp = "^(0|\\+84)[0-9]{8,10}$", message = "Số điện thoại không đúng định dạng Việt Nam")
+            String phone,
 
-            @Size(max = 180, message = "Họ tên tối đa 180 ký tự") String fullName,
+            @NotBlank(message = "Họ và tên không được để trống")
+            @Size(max = 180, message = "Họ tên tối đa 180 ký tự")
+            String fullName,
 
             Boolean marketingConsent) {
     }
@@ -452,10 +592,12 @@ public class AuthController {
             String accountType,
             String status,
             Set<String> roles,
-            Set<String> permissions) {
+            Set<String> permissions,
+            String token,
+            Long expiresIn) {
 
         public static SessionResponse unauthenticated() {
-            return new SessionResponse(false, null, null, null, null, null, null, null, Set.of(), Set.of());
+            return new SessionResponse(false, null, null, null, null, null, null, null, Set.of(), Set.of(), null, null);
         }
     }
 }

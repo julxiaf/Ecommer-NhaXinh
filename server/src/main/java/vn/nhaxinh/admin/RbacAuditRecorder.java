@@ -46,6 +46,18 @@ public class RbacAuditRecorder {
     ) {
         User actor = resolveActor(principal);
         String ip = clientIp(request);
+        recordResolved(actor, actorName(principal), ip, action, entityType, entityId, details);
+    }
+
+    public void recordResolved(
+            User actor,
+            String actorLabel,
+            String ip,
+            String action,
+            String entityType,
+            Object entityId,
+            Map<String, Object> details
+    ) {
         String jsonDetails = toJson(details);
         auditLogService.record(
                 actor,
@@ -56,7 +68,7 @@ public class RbacAuditRecorder {
                 ip
         );
         log.info("[RBAC-AUDIT] actor='{}' | action={} | entity={}:{} | ip={} | details={}",
-                actorName(principal), action, entityType, entityId, ip, jsonDetails);
+                actorLabel, action, entityType, entityId, ip, jsonDetails);
     }
 
     public static String actorName(UserDetails principal) {

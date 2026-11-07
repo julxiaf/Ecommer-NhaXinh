@@ -11,11 +11,72 @@ public record ProductDetailResponse(
         String shortDescription,
         String description,
         String specifications,
+        Boolean isPreorder,
+        String stockStatus,
         BrandInfo brand,
         List<CategoryInfo> categories,
         List<MediaInfo> media,
-        List<VariantInfo> variants
+        List<VariantInfo> variants,
+        String createdAt,
+        Boolean isNew,
+        Boolean isDeleted,
+        java.time.LocalDateTime deletedAt,
+        String createdBy
 ) {
+    public ProductDetailResponse(
+            Long id,
+            String name,
+            String slug,
+            String status,
+            String shortDescription,
+            String description,
+            String specifications,
+            BrandInfo brand,
+            List<CategoryInfo> categories,
+            List<MediaInfo> media,
+            List<VariantInfo> variants
+    ) {
+        this(id, name, slug, status, shortDescription, description, specifications, false, "IN_STOCK", brand, categories, media, variants, null, true, "ARCHIVED".equalsIgnoreCase(status), null, null);
+    }
+
+    public ProductDetailResponse(
+            Long id,
+            String name,
+            String slug,
+            String status,
+            String shortDescription,
+            String description,
+            String specifications,
+            Boolean isPreorder,
+            String stockStatus,
+            BrandInfo brand,
+            List<CategoryInfo> categories,
+            List<MediaInfo> media,
+            List<VariantInfo> variants
+    ) {
+        this(id, name, slug, status, shortDescription, description, specifications, isPreorder, stockStatus, brand, categories, media, variants, null, false, "ARCHIVED".equalsIgnoreCase(status), null, null);
+    }
+
+    public ProductDetailResponse(
+            Long id,
+            String name,
+            String slug,
+            String status,
+            String shortDescription,
+            String description,
+            String specifications,
+            Boolean isPreorder,
+            String stockStatus,
+            BrandInfo brand,
+            List<CategoryInfo> categories,
+            List<MediaInfo> media,
+            List<VariantInfo> variants,
+            String createdAt,
+            Boolean isNew
+    ) {
+        this(id, name, slug, status, shortDescription, description, specifications, isPreorder, stockStatus, brand, categories, media, variants, createdAt, isNew, "ARCHIVED".equalsIgnoreCase(status), null, null);
+    }
+
     public record BrandInfo(
             Long id,
             String name,
@@ -26,8 +87,14 @@ public record ProductDetailResponse(
     public record CategoryInfo(
             Long id,
             String name,
-            String slug
-    ) {}
+            String slug,
+            String categoryGroup,
+            Boolean isCollection
+    ) {
+        public CategoryInfo(Long id, String name, String slug) {
+            this(id, name, slug, "PRODUCT", false);
+        }
+    }
 
     public record MediaInfo(
             Long id,
@@ -84,7 +151,24 @@ public record ProductDetailResponse(
 
         List<CategoryInfo> categoryInfos = product.getCategories() != null
                 ? product.getCategories().stream()
-                        .map(c -> new CategoryInfo(c.getId(), c.getName(), c.getSlug()))
+                        .sorted(java.util.Comparator.comparingInt((Category c) -> {
+                            String grp = c.getCategoryGroup() != null ? c.getCategoryGroup().toUpperCase() : "PRODUCT";
+                            String nm = c.getName() != null ? c.getName().trim().toLowerCase() : "";
+                            boolean isCol = "COLLECTION".equals(grp)
+                                    || Boolean.TRUE.equals(c.getIsCollection())
+                                    || nm.startsWith("bộ sưu tập")
+                                    || nm.startsWith("bo suu tap");
+                            if (isCol) return 2;
+                            if ("ROOM".equals(grp)) return 1;
+                            return 0; // Ưu tiên loại sản phẩm (PRODUCT) lên đầu tiên
+                        }).thenComparing(c -> c.getId() != null ? c.getId() : 0L))
+                        .map(c -> new CategoryInfo(
+                                c.getId(),
+                                c.getName(),
+                                c.getSlug(),
+                                c.getCategoryGroup(),
+                                c.getIsCollection()
+                        ))
                         .toList()
                 : List.of();
 
@@ -122,6 +206,12 @@ public record ProductDetailResponse(
                         .toList()
                 : List.of();
 
+        boolean isPre = Boolean.TRUE.equals(product.getIsPreorder()) || "PRE_ORDER".equalsIgnoreCase(product.getStockStatus());
+        String stockSt = product.getStockStatus() != null ? product.getStockStatus() : (isPre ? "PRE_ORDER" : "IN_STOCK");
+        String createdStr = product.getCreatedAt() != null ? product.getCreatedAt().toString() : null;
+        boolean isNew = product.getCreatedAt() != null && product.getCreatedAt().isAfter(java.time.LocalDateTime.now().minusDays(45));
+        boolean isDel = Boolean.TRUE.equals(product.getIsDeleted()) || "ARCHIVED".equalsIgnoreCase(product.getStatus());
+
         return new ProductDetailResponse(
                 product.getId(),
                 product.getName(),
@@ -130,10 +220,17 @@ public record ProductDetailResponse(
                 product.getShortDescription(),
                 product.getDescription(),
                 product.getSpecifications(),
+                isPre,
+                stockSt,
                 brandInfo,
                 categoryInfos,
                 mediaInfos,
-                variantInfos
+                variantInfos,
+                createdStr,
+                isNew,
+                isDel,
+                product.getDeletedAt(),
+                product.getCreatedBy()
         );
     }
 }

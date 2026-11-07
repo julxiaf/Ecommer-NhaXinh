@@ -9,6 +9,8 @@ import {
   ArrowRight,
   AlertTriangle,
   MessageCircle,
+  Clock,
+  Truck,
 } from "lucide-react";
 import Header from "../components/Headers";
 import Footer from "../components/Footer";
@@ -22,8 +24,16 @@ export default function CartPage() {
   const {
     cart,
     cartCount,
-    cartTotal,
-    hasPreorderItems,
+    selectedCartKeys,
+    selectedCartItems,
+    selectedCartTotal,
+    selectedCartCount,
+    hasSelectedPreorder,
+    hasSelectedOutOfStock,
+    toggleSelectCartItem,
+    selectAllCartItems,
+    unselectAllCartItems,
+    removeSelectedCartItems,
     updateCartQty,
     removeFromCart,
     clearCart,
@@ -32,6 +42,21 @@ export default function CartPage() {
   } = useStore();
 
   const [cartWarning, setCartWarning] = useState<string | null>(null);
+
+  // Danh sách key của các sản phẩm có thể chọn (không bị hết hàng)
+  const selectableKeys = cart
+    .filter((i) => {
+      const vId = i.variantId ?? i.product.variantId;
+      return isPreorderItem(i.product, vId) || getMaxStock(i.product, vId) > 0;
+    })
+    .map((i) => {
+      const vId = i.variantId ?? i.product.variantId;
+      return vId ? `${i.product.id}_${vId}` : String(i.product.id);
+    });
+
+  const isAllSelected =
+    selectableKeys.length > 0 &&
+    selectableKeys.every((key) => selectedCartKeys.includes(key));
 
   return (
     <>
@@ -82,7 +107,37 @@ export default function CartPage() {
           <div className="cart-layout">
             {/* Cart Items */}
             <div className="cart-items">
+              {/* Select All Toolbar */}
+              <div className="cart-select-toolbar">
+                <label className="cart-select-all-label">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={(e) =>
+                      e.target.checked ? selectAllCartItems() : unselectAllCartItems()
+                    }
+                    disabled={selectableKeys.length === 0}
+                  />
+                  <span>
+                    Chọn tất cả ({selectedCartItems.length}/{cart.length} món)
+                  </span>
+                </label>
+
+                {selectedCartItems.length > 0 && (
+                  <button
+                    type="button"
+                    className="cart-delete-selected-btn"
+                    onClick={removeSelectedCartItems}
+                    title="Xóa các mục đã đánh dấu chọn khỏi giỏ hàng"
+                  >
+                    <Trash2 size={13} />
+                    Xóa mục đã chọn ({selectedCartItems.length})
+                  </button>
+                )}
+              </div>
+
               <div className="cart-header-row">
+                <span className="cart-col-check"></span>
                 <span className="cart-col-product">Sản phẩm</span>
                 <span className="cart-col-price">Đơn giá</span>
                 <span className="cart-col-qty">Số lượng</span>
@@ -94,19 +149,28 @@ export default function CartPage() {
                 const { product, quantity, variantId, variantName } = item;
                 const effectiveVariantId = variantId ?? product.variantId;
                 const itemKey = effectiveVariantId ? `${product.id}_${effectiveVariantId}` : String(product.id);
-                const isPre = isPreorderItem(product);
+                const isPre = isPreorderItem(product, effectiveVariantId);
                 const maxStock = getMaxStock(product, effectiveVariantId);
+                const isOutOfStock = !isPre && maxStock <= 0;
+                const isChecked = selectedCartKeys.includes(itemKey);
 
                 return (
                   <div
                     key={itemKey}
-                    className="cart-item"
-                    style={{
-                      background: isPre ? "#fffdf5" : undefined,
-                      borderLeft: isPre ? "4px solid #d97706" : undefined,
-                      paddingLeft: isPre ? "14px" : undefined,
-                    }}
+                    className={`cart-item ${isPre ? "cart-item-preorder" : ""}`}
+                    style={{ opacity: isOutOfStock ? 0.65 : 1 }}
                   >
+                    <span className="cart-col-check">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleSelectCartItem(itemKey)}
+                        disabled={isOutOfStock}
+                        title={isOutOfStock ? "Sản phẩm tạm hết hàng" : "Chọn để thanh toán"}
+                        aria-label={`Chọn sản phẩm ${product.name}`}
+                      />
+                    </span>
+
                     <div className="cart-col-product">
                       <Link to={`/san-pham/${product.slug}`} className="cart-item-img">
                         <img src={product.image} alt={product.name} loading="lazy" />
@@ -116,33 +180,18 @@ export default function CartPage() {
                           {product.name}
                         </Link>
                         {variantName && (
-                          <span
-                            className="cart-item-variant"
-                            style={{
-                              display: "inline-block",
-                              fontSize: "12px",
-                              color: "#6b7280",
-                              marginTop: "2px",
-                            }}
-                          >
+                          <span className="cart-item-variant">
                             Phiên bản: {variantName}
                           </span>
                         )}
                         {isPre && (
-                          <span
-                            style={{
-                              display: "inline-block",
-                              fontSize: "11px",
-                              fontWeight: "700",
-                              background: "#fef3c7",
-                              color: "#b45309",
-                              padding: "2px 8px",
-                              borderRadius: "99px",
-                              marginTop: "4px",
-                              alignSelf: "flex-start",
-                            }}
-                          >
-                            ⏳ Hàng đặt trước (Pre-Order)
+                          <span className="cart-item-badge-preorder">
+                            ⏳ Hàng đặt trước (Pre-Order - Giao sau 7-14 ngày)
+                          </span>
+                        )}
+                        {isOutOfStock && (
+                          <span className="cart-item-badge-outofstock">
+                            ✕ Tạm hết hàng (Vui lòng bỏ chọn)
                           </span>
                         )}
                         <span className="cart-item-cat">{product.category}</span>
@@ -187,15 +236,7 @@ export default function CartPage() {
                       </div>
 
                       {!isPre && (
-                        <span
-                          style={{
-                            fontSize: "11px",
-                            color: quantity >= maxStock ? "#b45309" : "#6b7280",
-                            marginTop: "4px",
-                            display: "block",
-                            textAlign: "center",
-                          }}
-                        >
+                        <span className="cart-item-stock-hint">
                           {quantity >= maxStock ? `Tối đa kho: ${maxStock}` : `Kho còn: ${maxStock}`}
                         </span>
                       )}
@@ -210,6 +251,7 @@ export default function CartPage() {
                         className="cart-remove"
                         onClick={() => removeFromCart(product.id, effectiveVariantId)}
                         aria-label="Xoá sản phẩm"
+                        title="Xoá khỏi giỏ hàng"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -219,10 +261,10 @@ export default function CartPage() {
               })}
 
               <div className="cart-bottom-actions">
-                <Link to="/san-pham" className="btn-secondary">
+                <Link to="/san-pham" className="cart-back-shopping-btn">
                   ← Tiếp tục mua sắm
                 </Link>
-                <button className="btn-danger" onClick={clearCart}>
+                <button className="cart-clear-all-btn" onClick={clearCart}>
                   <Trash2 size={14} />
                   Xoá tất cả
                 </button>
@@ -234,8 +276,10 @@ export default function CartPage() {
               <h3 className="cart-summary-title">Tóm tắt đơn hàng</h3>
 
               <div className="cart-summary-row">
-                <span>Tạm tính</span>
-                <span>{vnd(cartTotal)}</span>
+                <span>
+                  Tạm tính {selectedCartCount > 0 ? `(${selectedCartCount} món)` : ""}
+                </span>
+                <span>{vnd(selectedCartTotal)}</span>
               </div>
               <div className="cart-summary-row">
                 <span>Phí vận chuyển</span>
@@ -246,92 +290,88 @@ export default function CartPage() {
 
               <div className="cart-summary-row cart-summary-total">
                 <span>Tổng cộng</span>
-                <span>{vnd(cartTotal)}</span>
+                <span>{vnd(selectedCartTotal)}</span>
               </div>
 
               <p className="cart-vat-note">Đã bao gồm VAT</p>
 
-              {/* Xử lý trường hợp hàng đặt trước vs hàng có sẵn */}
-              {hasPreorderItems ? (
-                <div style={{ marginTop: "16px", padding: "16px", borderRadius: "10px", background: "#fef3c7", border: "1px solid #fde68a" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: "700", color: "#92400e", fontSize: "14px" }}>
-                    <AlertTriangle size={18} />
-                    <span>CÓ SẢN PHẨM ĐẶT TRƯỚC</span>
-                  </div>
-                  <p style={{ margin: "8px 0 14px", fontSize: "12px", lineHeight: "1.5", color: "#78350f" }}>
-                    Giỏ hàng của bạn có sản phẩm cần đặt trước (sản xuất theo yêu cầu riêng), do đó <strong>không thể thanh toán trực tuyến tự động</strong>. Vui lòng kết nối ngay với CSKH để hoàn tất đơn hàng:
+              {/* Nút thanh toán chính */}
+              {selectedCartItems.length === 0 ? (
+                <div>
+                  <button
+                    type="button"
+                    disabled
+                    className="cart-checkout-btn"
+                  >
+                    Vui lòng chọn sản phẩm để thanh toán
+                  </button>
+                  <p style={{ fontSize: "12px", color: "#64748b", marginTop: "8px", textAlign: "center" }}>
+                    Đánh dấu vào ô chọn sản phẩm bạn muốn đặt mua trước khi tiếp tục.
                   </p>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <a
-                      href={`https://zalo.me/0974933486?text=${encodeURIComponent(
-                        `Chào Nhà Xinh, tôi muốn đặt hàng danh sách sản phẩm gồm:\n` +
-                        cart.map((c) => `- ${c.product.name} (SL: ${c.quantity}, Đơn giá: ${vnd(c.product.price)})`).join("\n") +
-                        `\nTổng tiền dự tính: ${vnd(cartTotal)}`
-                      )}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "8px",
-                        padding: "12px",
-                        borderRadius: "8px",
-                        background: "#0068ff",
-                        color: "#fff",
-                        fontWeight: "700",
-                        fontSize: "13.5px",
-                        textDecoration: "none",
-                        boxShadow: "0 3px 10px rgba(0, 104, 255, 0.25)",
-                      }}
-                    >
-                      <MessageCircle size={18} />
-                      Gửi đơn qua Zalo CSKH
-                    </a>
-
-                    <a
-                      href="https://m.me/nhaxinh"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "8px",
-                        padding: "12px",
-                        borderRadius: "8px",
-                        background: "#1877f2",
-                        color: "#fff",
-                        fontWeight: "700",
-                        fontSize: "13.5px",
-                        textDecoration: "none",
-                        boxShadow: "0 3px 10px rgba(24, 119, 242, 0.25)",
-                      }}
-                    >
-                      <span style={{ fontWeight: "900", fontSize: "15px" }}>f</span>
-                      Nhắn tin Facebook hỗ trợ
-                    </a>
-                  </div>
+                </div>
+              ) : hasSelectedOutOfStock ? (
+                <div>
+                  <button
+                    type="button"
+                    disabled
+                    className="cart-checkout-btn"
+                  >
+                    Có sản phẩm hết hàng trong mục đã chọn
+                  </button>
+                  <p style={{ fontSize: "12px", color: "#b91c1c", marginTop: "8px", textAlign: "center" }}>
+                    Vui lòng bỏ chọn các sản phẩm tạm hết hàng để tiếp tục thanh toán.
+                  </p>
                 </div>
               ) : (
-                <Link
-                  to="/thanh-toan"
-                  className="btn-primary cart-checkout-btn"
-                  style={{ textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}
-                >
-                  Tiến hành thanh toán
-                  <ArrowRight size={16} />
-                </Link>
+                <div>
+                  <Link
+                    to="/thanh-toan"
+                    className="cart-checkout-btn"
+                  >
+                    <span>Tiến hành thanh toán ({selectedCartCount})</span>
+                    <ArrowRight size={17} />
+                  </Link>
+                </div>
               )}
 
+              {/* Thông báo hàng đặt trước nếu có trong danh sách chọn */}
+              {hasSelectedPreorder && (
+                <div className="cart-preorder-notice">
+                  <div className="cart-preorder-notice-header">
+                    <Clock size={15} />
+                    <span>Đơn hàng có sản phẩm đặt trước (Pre-Order)</span>
+                  </div>
+                  <p className="cart-preorder-notice-text">
+                    Sản phẩm sản xuất theo yêu cầu (chuẩn bị 7 - 14 ngày làm việc). Quý khách có thể bấm thanh toán trực tuyến ngay hoặc liên hệ để được tư vấn:
+                  </p>
+
+                  <a
+                    href={`https://zalo.me/0974933486?text=${encodeURIComponent(
+                      `Chào Nhà Xinh, tôi muốn được tư vấn giỏ hàng gồm:\n` +
+                      selectedCartItems.map((c) => `- ${c.product.name} (SL: ${c.quantity}, Đơn giá: ${vnd(c.product.price)})`).join("\n") +
+                      `\nTổng tiền dự tính: ${vnd(selectedCartTotal)}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="cart-zalo-btn"
+                  >
+                    <MessageCircle size={15} />
+                    <span>Tư vấn đơn hàng qua Zalo</span>
+                  </a>
+                </div>
+              )}
+
+              {/* Thông tin giao nhận */}
               <div className="cart-guarantee">
-                <p> Thông tin giao hàng
-Đối với những sản phẩm có sẵn tại khu vực, Nhà Xinh sẽ giao hàng trong vòng 2-7 ngày. Đối với những sản phẩm không có sẵn, thời gian giao hàng sẽ được nhân viên Nhà Xinh thông báo đến quý khách.
-
-Từ 2-6: 8:30 - 17:30
-
-Thứ 7, CN: 9:30 - 16:30</p>
+                <div className="cart-guarantee-header">
+                  <Truck size={15} className="text-[#d26e4b]" />
+                  <span>Chính sách giao nhận Nhà Xinh</span>
+                </div>
+                <ul className="cart-guarantee-list">
+                  <li>• <strong>Sản phẩm có sẵn:</strong> Giao hàng tiêu chuẩn 2 – 7 ngày.</li>
+                  <li>• <strong>Hàng đặt trước:</strong> Giao hàng theo lịch hẹn (7 – 14 ngày làm việc).</li>
+                  <li>• <strong>Giờ giao hàng:</strong> T2 – T6: 8:30 – 17:30 | T7 – CN: 9:30 – 16:30.</li>
+                </ul>
               </div>
             </aside>
           </div>

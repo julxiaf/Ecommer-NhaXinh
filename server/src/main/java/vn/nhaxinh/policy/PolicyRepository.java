@@ -12,6 +12,8 @@ public interface PolicyRepository extends JpaRepository<Policy, Integer> {
 
     Optional<Policy> findBySlug(String slug);
 
+    Optional<Policy> findByTemplateType(String templateType);
+
     boolean existsBySlug(String slug);
 
     boolean existsBySlugAndIdNot(String slug, Integer id);
@@ -19,6 +21,8 @@ public interface PolicyRepository extends JpaRepository<Policy, Integer> {
     List<Policy> findAllByOrderByCreatedAtDesc();
 
     List<Policy> findByStatusOrderByCreatedAtDesc(String status);
+
+    List<Policy> findByStatusOrderByIdAsc(String status);
 
     @Query("SELECT p FROM Policy p WHERE " +
            "(:status IS NULL OR p.status = :status) AND " +

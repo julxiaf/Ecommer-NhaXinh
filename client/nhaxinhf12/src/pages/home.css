@@ -3,8 +3,7 @@
    ═══════════════════════════════════════════════ */
 
 .home-section {
-  max-width: 1280px;
-  margin: 0 auto;
+  margin: auto 12px;
   padding: 32px 0px;
 }
 
@@ -40,27 +39,167 @@
   color: #b85a3b;
 }
 
-/* ── Product Grid ── */
-.home-product-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 24px;
+/* ── Horizontal Carousel 4 sản phẩm (Sản phẩm nổi bật) ── */
+.home-featured-carousel-section {
+  position: relative;
 }
+
+.home-featured-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.home-featured-nav-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-featured-header-arrow {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid #dfd8cd;
+  background: #ffffff;
+  color: #2c2724;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.home-featured-header-arrow:hover:not(:disabled) {
+  background: #b86b49;
+  border-color: #b86b49;
+  color: #ffffff;
+}
+
+.home-featured-header-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.home-featured-slider-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.home-featured-slider-track {
+  display: flex;
+  gap: 24px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 6px 2px 14px;
+  width: 100%;
+  cursor: grab;
+  user-select: none;
+}
+
+.home-featured-slider-track:active {
+  cursor: grabbing;
+}
+
+.home-featured-slider-track::-webkit-scrollbar {
+  display: none;
+}
+
+.home-featured-slide-item {
+  flex: 0 0 calc((100% - 72px) / 4);
+  min-width: calc((100% - 72px) / 4);
+  scroll-snap-align: start;
+}
+
+.home-featured-float-arrow {
+  position: absolute;
+  top: 42%;
+  transform: translateY(-50%);
+  z-index: 15;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid #e2dbd1;
+  background: rgba(255, 255, 255, 0.96);
+  color: #2c2724;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(31, 29, 26, 0.14);
+  transition: all 0.25s ease;
+}
+
+.home-featured-float-arrow:hover:not(.is-disabled) {
+  background: #b86b49;
+  border-color: #b86b49;
+  color: #ffffff;
+  transform: translateY(-50%) scale(1.06);
+}
+
+.home-featured-float-arrow.is-disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.home-featured-float-arrow.left {
+  left: -18px;
+}
+
+.home-featured-float-arrow.right {
+  right: -18px;
+}
+
+.home-featured-progress-track {
+  width: 180px;
+  height: 3px;
+  background: #e6dfd5;
+  border-radius: 999px;
+  margin: 18px auto 0;
+  overflow: hidden;
+}
+
+.home-featured-progress-bar {
+  height: 100%;
+  background: #b86b49;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
 @media (max-width: 1024px) {
-  .home-product-grid {
-    grid-template-columns: repeat(3, 1fr);
+  .home-featured-slide-item {
+    flex: 0 0 calc((100% - 40px) / 3);
+    min-width: calc((100% - 40px) / 3);
+  }
+  .home-featured-slider-track {
     gap: 20px;
   }
+  .home-featured-float-arrow.left {
+    left: 6px;
+  }
+  .home-featured-float-arrow.right {
+    right: 6px;
+  }
 }
+
 @media (max-width: 768px) {
-  .home-product-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .home-featured-slide-item {
+    flex: 0 0 calc((100% - 16px) / 2);
+    min-width: calc((100% - 16px) / 2);
+  }
+  .home-featured-slider-track {
     gap: 16px;
   }
 }
+
 @media (max-width: 480px) {
-  .home-product-grid {
-    grid-template-columns: 1fr;
+  .home-featured-slide-item {
+    flex: 0 0 82%;
+    min-width: 82%;
   }
 }
 
@@ -306,5 +445,95 @@
   }
   .home-collection-title {
     font-size: 22px;
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   LƯỚI THẺ ẢNH DANH MỤC KHÔNG GIAN (CHUẨN MINIMALIST NHÀ XINH)
+   ══════════════════════════════════════════════════════════ */
+.home-category-grid-section {
+  margin-left: auto;
+  margin-right: auto;
+  padding: 72px 24px 60px;
+}
+
+.home-category-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.home-category-card {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.home-category-image-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background-color: #f7f5f2;
+}
+
+.home-category-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.7s cubic-bezier(0.2, 1, 0.3, 1);
+}
+
+.home-category-card:hover .home-category-card-img {
+  transform: scale(1.03);
+}
+
+.home-category-content {
+  margin-top: 14px;
+  padding: 0;
+  text-align: left;
+}
+
+.home-category-title {
+  font-size: 15px;
+  font-weight: 400;
+  color: #111111;
+  margin: 0;
+  letter-spacing: -0.01em;
+  font-family: var(--font-sans, "Be Vietnam Pro", system-ui, sans-serif);
+  transition: color 0.25s ease;
+}
+
+.home-category-card:hover .home-category-title {
+  color: #8c7355;
+}
+
+@media (max-width: 1024px) {
+  .home-category-grid-section {
+    padding: 52px 20px 44px;
+  }
+  .home-category-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-category-grid-section {
+    padding: 36px 16px 32px;
+  }
+  .home-category-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .home-category-content {
+    margin-top: 10px;
+  }
+  .home-category-title {
+    font-size: 14px;
   }
 }

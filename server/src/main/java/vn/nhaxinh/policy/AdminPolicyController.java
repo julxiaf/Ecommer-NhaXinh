@@ -111,8 +111,17 @@ public class AdminPolicyController extends BaseController {
         if (!Objects.equals(before.title(), updated.getTitle())) {
             changes.put("title", Map.of("old", before.title() != null ? before.title() : "", "new", updated.getTitle() != null ? updated.getTitle() : ""));
         }
+        if (!Objects.equals(before.shortTitle(), updated.getShortTitle())) {
+            changes.put("shortTitle", Map.of("old", String.valueOf(before.shortTitle()), "new", String.valueOf(updated.getShortTitle())));
+        }
         if (!Objects.equals(before.slug(), updated.getSlug())) {
             changes.put("slug", Map.of("old", before.slug() != null ? before.slug() : "", "new", updated.getSlug() != null ? updated.getSlug() : ""));
+        }
+        if (!Objects.equals(before.intro(), updated.getIntro())) {
+            changes.put("intro", Map.of("old", String.valueOf(before.intro()), "new", String.valueOf(updated.getIntro())));
+        }
+        if (!Objects.equals(before.templateType(), updated.getTemplateType())) {
+            changes.put("templateType", Map.of("old", String.valueOf(before.templateType()), "new", String.valueOf(updated.getTemplateType())));
         }
         if (!Objects.equals(before.fontFamily(), updated.getFontFamily())) {
             changes.put("fontFamily", Map.of("old", before.fontFamily() != null ? before.fontFamily() : "", "new", updated.getFontFamily() != null ? updated.getFontFamily() : ""));
@@ -120,10 +129,25 @@ public class AdminPolicyController extends BaseController {
         if (!Objects.equals(before.fontSize(), updated.getFontSize())) {
             changes.put("fontSize", Map.of("old", before.fontSize() != null ? before.fontSize() : "", "new", updated.getFontSize() != null ? updated.getFontSize() : ""));
         }
+        if (!Objects.equals(before.lineHeight(), updated.getLineHeight())) {
+            changes.put("lineHeight", Map.of("old", String.valueOf(before.lineHeight()), "new", String.valueOf(updated.getLineHeight())));
+        }
+        if (!Objects.equals(before.accentColor(), updated.getAccentColor())) {
+            changes.put("accentColor", Map.of("old", String.valueOf(before.accentColor()), "new", String.valueOf(updated.getAccentColor())));
+        }
         if (!Objects.equals(before.status(), updated.getStatus())) {
             changes.put("status", Map.of("old", before.status() != null ? before.status() : "", "new", updated.getStatus() != null ? updated.getStatus() : ""));
         }
+        if (!Objects.equals(before.content(), updated.getContent())) {
+            changes.put("content", Map.of(
+                    "oldLength", before.content() != null ? before.content().length() : 0,
+                    "newLength", updated.getContent() != null ? updated.getContent().length() : 0
+            ));
+        }
         details.put("changes", changes);
+
+        log.info("[POLICY-UPDATE-DETAIL] Chính sách id={} slug='{}' | actor='{}' | Chi tiết các trường thay đổi ({}): {}",
+                updated.getId(), updated.getSlug(), actor, changes.size(), changes);
 
         auditRecorder.record(principal, servletRequest, "POLICY_UPDATE", ENTITY_POLICY, updated.getId(), details);
 

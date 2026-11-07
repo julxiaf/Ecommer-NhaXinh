@@ -1,17 +1,6 @@
 package vn.nhaxinh.coupon;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -62,6 +51,21 @@ public class Coupon {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    @Column(name = "target_customer", length = 30)
+    private String targetCustomer = "ALL"; // ALL, FIRST_ORDER, NEW_USER
+
+    @Column(name = "scope_type", length = 30)
+    private String scopeType = "ALL"; // ALL, PRODUCT, COLLECTION, CATEGORY
+
+    @Column(name = "applicable_collections", length = 1000)
+    private String applicableCollections;
+
+    @Column(name = "applicable_categories", length = 1000)
+    private String applicableCategories;
+
+    @Column(name = "applicable_product_ids", length = 2000)
+    private String applicableProductIds;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -93,6 +97,12 @@ public class Coupon {
         }
         if (minOrderAmount == null) {
             minOrderAmount = BigDecimal.ZERO;
+        }
+        if (targetCustomer == null || targetCustomer.isBlank()) {
+            targetCustomer = "ALL";
+        }
+        if (scopeType == null || scopeType.isBlank()) {
+            scopeType = "ALL";
         }
     }
 
@@ -241,5 +251,45 @@ public class Coupon {
 
     public void setApplicableProducts(Set<Product> applicableProducts) {
         this.applicableProducts = applicableProducts;
+    }
+
+    public String getTargetCustomer() {
+        return targetCustomer != null ? targetCustomer : "ALL";
+    }
+
+    public void setTargetCustomer(String targetCustomer) {
+        this.targetCustomer = targetCustomer;
+    }
+
+    public String getScopeType() {
+        return scopeType != null ? scopeType : "ALL";
+    }
+
+    public void setScopeType(String scopeType) {
+        this.scopeType = scopeType;
+    }
+
+    public String getApplicableCollections() {
+        return applicableCollections;
+    }
+
+    public void setApplicableCollections(String applicableCollections) {
+        this.applicableCollections = applicableCollections;
+    }
+
+    public String getApplicableCategories() {
+        return applicableCategories;
+    }
+
+    public void setApplicableCategories(String applicableCategories) {
+        this.applicableCategories = applicableCategories;
+    }
+
+    public String getApplicableProductIds() {
+        return applicableProductIds;
+    }
+
+    public void setApplicableProductIds(String applicableProductIds) {
+        this.applicableProductIds = applicableProductIds;
     }
 }

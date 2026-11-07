@@ -35,6 +35,7 @@ public final class OrderDtos {
             String paymentStatus,
             String paymentMethod,
             String customerNote,
+            String createdBy,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
             int totalItems,
@@ -66,6 +67,7 @@ public final class OrderDtos {
                     o.getPaymentStatus(),
                     paymentMethod != null ? paymentMethod : "CASH_ON_DELIVERY",
                     o.getCustomerNote(),
+                    o.getCreatedBy(),
                     o.getCreatedAt(),
                     o.getUpdatedAt(),
                     itemList.size(),
@@ -110,6 +112,7 @@ public final class OrderDtos {
                     o.getPaymentStatus(),
                     paymentMethod != null ? paymentMethod : "CASH_ON_DELIVERY",
                     o.getCustomerNote(),
+                    o.getCreatedBy(),
                     o.getCreatedAt(),
                     o.getUpdatedAt(),
                     itemList.size(),
@@ -140,6 +143,7 @@ public final class OrderDtos {
             String paymentStatus,
             String paymentMethod,
             String customerNote,
+            String createdBy,
             LocalDateTime createdAt,
             LocalDateTime updatedAt,
             List<OrderItemResponse> items,
@@ -164,6 +168,7 @@ public final class OrderDtos {
                     o.getPaymentStatus(),
                     paymentMethod != null ? paymentMethod : "CASH_ON_DELIVERY",
                     o.getCustomerNote(),
+                    o.getCreatedBy(),
                     o.getCreatedAt(),
                     o.getUpdatedAt(),
                     items != null ? items.stream().map(OrderItemResponse::of).toList() : List.of(),
@@ -316,6 +321,45 @@ public final class OrderDtos {
     public record CancelOrderRequest(
             @NotBlank(message = "Lý do hủy đơn không được để trống")
             @Size(max = 500, message = "Lý do hủy đơn tối đa 500 ký tự")
-            String reason
+            String reason,
+
+            @Size(max = 30, message = "Số điện thoại tối đa 30 ký tự")
+            String phone,
+
+            @Size(max = 180, message = "Email tối đa 180 ký tự")
+            String email
+    ) {
+        public CancelOrderRequest(String reason) {
+            this(reason, null, null);
+        }
+    }
+
+    public record CreateAdminOrderItemRequest(
+            Long productId,
+            String name,
+            String variantSku,
+            String variantDetails,
+            BigDecimal price,
+            Integer quantity
+    ) {}
+
+    public record CreateAdminOrderRequest(
+            String orderCode,
+            @NotBlank(message = "Tên khách hàng không được để trống")
+            String customerName,
+            @NotBlank(message = "Số điện thoại không được để trống")
+            String phone,
+            String email,
+            String address,
+            BigDecimal subtotal,
+            BigDecimal discountAmount,
+            BigDecimal shippingFee,
+            BigDecimal total,
+            String paymentMethod,
+            String paymentStatus,
+            String status,
+            String note,
+            String createdBy,
+            List<CreateAdminOrderItemRequest> items
     ) {}
 }

@@ -169,10 +169,21 @@ export interface AdminCategory {
   icon?: string;
   description?: string;
   imageUrl?: string;
+  categoryGroup?: "PRODUCT" | "ROOM" | "COLLECTION" | "PAGE" | "STATIC" | string;
   isCollection?: boolean;
   isDeleted: boolean;
   productCount: number;
   children?: AdminCategory[];
+  createdBy?: string;
+  // ── Các trường mở rộng dành cho Bộ sưu tập (Lookbook Editorial) ──
+  subtitle?: string;
+  introQuote?: string;
+  storyTitle?: string;
+  videoUrl?: string;
+  galleryImages?: string[];
+  styleTag?: string;
+  materials?: string;
+  productIds?: number[];
 }
 
 export interface ProductVariant {
@@ -206,6 +217,10 @@ export interface AdminProduct {
   createdAt: string;
   updatedAt?: string;
   description?: string;
+  isPreorder?: boolean;
+  stockStatus?: string;
+  isNew?: boolean;
+  createdBy?: string;
 }
 
 export interface OrderStatusHistory {
@@ -233,6 +248,10 @@ export interface AdminOrder {
   phone: string;
   email: string;
   address: string;
+  subtotal?: number;
+  discountAmount?: number;
+  shippingFee?: number;
+  couponCode?: string;
   total: number;
   paymentMethod: "cod" | "vnpay" | "vietqr" | "momo" | "bank_transfer";
   paymentStatus?: "pending" | "paid" | "failed" | "refunded" | "partially_paid";
@@ -241,33 +260,47 @@ export interface AdminOrder {
   items: AdminOrderItem[];
   note?: string;
   statusHistory: OrderStatusHistory[];
+  isDeleted?: boolean;
+  createdBy?: string;
 }
 
 export interface AdminDiscount {
   id: string;
   code: string;
+  name?: string;
   description: string;
+  discountType?: "PERCENT" | "FIXED" | "FREESHIP";
+  discountValue?: number;
   discountPercent: number;
   maxDiscount: number;
   minOrder: number;
   usageLimit: number;
   usedCount: number;
   expiresAt: string;
+  startsAt?: string;
+  endsAt?: string;
   status: "active" | "expired" | "disabled";
+  targetCustomer?: "ALL" | "FIRST_ORDER";
+  scopeType?: "ALL" | "PRODUCT" | "COLLECTION" | "CATEGORY";
+  applicableCollections?: string;
+  applicableCategories?: string;
+  applicableProductIds?: string;
 }
 
 export interface AdminArticle {
   id: string;
   title: string;
   slug: string;
-  category: "Góc cảm hứng" | "Xu hướng nội thất" | "Cẩm nang bảo quản" | "Tin tức";
+  category: "Góc cảm hứng" | "Xu hướng nội thất" | "Cẩm nang bảo quản" | "Tin tức" | "Bộ sưu tập" | string;
+  collectionSlug?: string;
   author: string;
   views: number;
   createdAt: string;
-  status: "published" | "draft";
+  status: "published" | "draft" | "hidden" | string;
   image: string;
   summary: string;
   content: string;
+  isDeleted?: boolean;
 }
 
 export interface AdminNotification {

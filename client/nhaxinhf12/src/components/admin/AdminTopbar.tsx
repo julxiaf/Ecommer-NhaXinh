@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
 import {
-  Menu, Bell, ArrowUpRight, Shield, CheckCheck,
+  Menu, Bell, CheckCheck,
   Package, AlertTriangle, Tag, Info, ExternalLink
 } from "lucide-react";
 import type { RoleDefinition, AdminNotification } from "../../services/admin/types";
@@ -34,6 +33,9 @@ export default function AdminTopbar({
   onOpenNotifications,
 }: AdminTopbarProps) {
   void title;
+  void currentRole;
+  void availableRoles;
+  void onSelectRole;
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const notifDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -98,7 +100,7 @@ export default function AdminTopbar({
 
       <div className="admin-topbar-right flex items-center gap-2 sm:gap-3 shrink-0">
         {/* Role Switcher - Dùng để kiểm thử phân quyền ngay tại chỗ */}
-        <div
+        {/* <div
           className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs"
         >
           <Shield size={14} className="text-blue-600 shrink-0" />
@@ -118,17 +120,17 @@ export default function AdminTopbar({
               </option>
             ))}
           </select>
-        </div>
+        </div> */}
 
         {/* View store button */}
-        <Link
+        {/* <Link
           to="/"
           className="admin-btn admin-btn-secondary admin-btn-sm inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all text-slate-700"
           target="_blank"
         >
           <span className="hidden sm:inline">Xem website</span>
           <ArrowUpRight size={14} />
-        </Link>
+        </Link> */}
 
         {/* Notification bell & Dropdown */}
         <div className="relative" ref={notifDropdownRef}>

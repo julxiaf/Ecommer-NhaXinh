@@ -1,8 +1,6 @@
 import type { CartItem } from "../hooks/useStore";
 import { ENDPOINTS, buildUrlWithQuery } from "./apiEndpoints";
-
-const CART_TOKEN_KEY = "nhaxinh_cart_token";
-const AUTH_TOKEN_KEY = "nhaxinh_auth_token";
+import { cartService } from "./cartService";
 
 export interface CheckoutApiRequest {
   recipientName: string;
@@ -58,61 +56,48 @@ export interface OrderDetailData {
   createdAt: string;
   items?: OrderItemDetail[];
 }
-
+export const apiaddress = {
+  async getAllProvince() {
+    try {
+      const res = await fetch(ENDPOINTS.ADDRESSKIT.PROVINCEALL);
+      if (!res.ok) {
+        throw new Error(`Lỗi HTTP! Trạng thái: ${res.status}`);
+      }
+      const data = await res.json();
+      return data.provinces || [];
+    } catch (error) {
+      console.error("Không thể lấy danh sách tỉnh/thành phố:", error);
+      return [];
+    }
+  },
+  async getProvinceDetail(id: string | number) {
+    try {
+      const res = await fetch(ENDPOINTS.ADDRESSKIT.PROVINCECODE(String(id)));
+      if (!res.ok) {
+        throw new Error(`Lỗi HTTP! Trạng thái: ${res.status}`);
+      }
+      const data = await res.json();
+      return data.communes || [];
+    } catch (error) {
+      console.error("Không thể lấy danh sách xã/phường:", error);
+      return [];
+    }
+  }
+};
 export const checkoutService = {
   /**
-   * Lấy hoặc tạo mới X-Cart-Token cho khách vãng lai
-   * (Token Base64 chuẩn từ 40-128 ký tự theo yêu cầu của CartController)
+   * Lấy hoặc yêu cầu máy chủ cấp mới X-Cart-Token cho khách vãng lai
+   * (Cấp trực tiếp bởi CartController: POST /api/v1/cart/session)
    */
   async getOrCreateCartToken(): Promise<string> {
-    let token = localStorage.getItem(CART_TOKEN_KEY);
-    if (token && token.length >= 40 && token.length <= 128) {
-      return token;
-    }
-
-    try {
-      const res = await fetch(ENDPOINTS.CART.SESSION, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.cartToken) {
-          localStorage.setItem(CART_TOKEN_KEY, data.cartToken);
-          return data.cartToken;
-        }
-      }
-    } catch {
-      // Fallback nếu không gọi được API session
-    }
-
-    // Tự sinh URL-safe Base64 token 44 ký tự
-    const randomBytes = new Uint8Array(32);
-    crypto.getRandomValues(randomBytes);
-    let binary = "";
-    for (let i = 0; i < randomBytes.length; i++) {
-      binary += String.fromCharCode(randomBytes[i]);
-    }
-    const generated = btoa(binary)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-    localStorage.setItem(CART_TOKEN_KEY, generated);
-    return generated;
+    return cartService.getOrCreateCartToken();
   },
 
   /**
    * Lấy Headers chuẩn cho Cart & Checkout
    */
   async getAuthHeaders(): Promise<Record<string, string>> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    const cartToken = await this.getOrCreateCartToken();
-    headers["X-Cart-Token"] = cartToken;
-
-    const authToken = localStorage.getItem(AUTH_TOKEN_KEY);
-    if (authToken) {
-      headers["Authorization"] = `Bearer ${authToken}`;
-    }
-    return headers;
+    return cartService.getHeaders();
   },
 
   /**
@@ -120,6 +105,13 @@ export const checkoutService = {
    */
   async syncCartToServer(cartItems: CartItem[]): Promise<boolean> {
     if (!cartItems || cartItems.length === 0) return false;
+
+    // Nếu toàn bộ các món trong giỏ đã có backendItemId (đã được đồng bộ với server qua cartService),
+    // không cần xóa và gửi lại tuần tự từng món làm chậm quá trình thanh toán.
+    const allSyncedOnServer = cartItems.every((item) => Boolean(item.backendItemId));
+    if (allSyncedOnServer) {
+      return true;
+    }
 
     try {
       const headers = await this.getAuthHeaders();
@@ -135,43 +127,45 @@ export const checkoutService = {
         // Bỏ qua nếu endpoint DELETE chưa sẵn sàng
       }
 
-      for (const item of cartItems) {
-        // Tìm variant ID ưu tiên từ item.variantId -> item.product.variantId -> variants[0].id
-        let variantId = item.variantId ?? item.product.variantId;
-        if (!variantId && item.product.variants && item.product.variants.length > 0) {
-          variantId = item.product.variants[0].id;
-        }
-
-        // Nếu sản phẩm chưa có variantId (ví dụ thêm từ danh sách), map với variant từ backend
-        if (!variantId) {
-          try {
-            const res = await fetch(ENDPOINTS.PRODUCTS.BY_ID(item.product.id), {
-              credentials: "include",
-            });
-            if (res.ok) {
-              const detail = await res.json();
-              if (detail.variants && detail.variants.length > 0) {
-                variantId = detail.variants[0].id;
-              }
-            }
-          } catch {
-            // Bỏ qua
+      await Promise.all(
+        cartItems.map(async (item) => {
+          // Tìm variant ID ưu tiên từ item.variantId -> item.product.variantId -> variants[0].id
+          let variantId = item.variantId ?? item.product.variantId;
+          if (!variantId && item.product.variants && item.product.variants.length > 0) {
+            variantId = item.product.variants[0].id;
           }
-        }
 
-        // Bỏ qua các ID demo không có trong database thật (> 90000)
-        if (variantId && variantId < 90000) {
-          await fetch(ENDPOINTS.CART.ITEMS, {
-            method: "POST",
-            headers,
-            credentials: "include",
-            body: JSON.stringify({
-              variantId,
-              quantity: item.quantity,
-            }),
-          });
-        }
-      }
+          // Nếu sản phẩm chưa có variantId (ví dụ thêm từ danh sách), map với variant từ backend
+          if (!variantId) {
+            try {
+              const res = await fetch(ENDPOINTS.PRODUCTS.BY_ID(item.product.id), {
+                credentials: "include",
+              });
+              if (res.ok) {
+                const detail = await res.json();
+                if (detail.variants && detail.variants.length > 0) {
+                  variantId = detail.variants[0].id;
+                }
+              }
+            } catch {
+              // Bỏ qua
+            }
+          }
+
+          // Bỏ qua các ID demo không có trong database thật (> 90000)
+          if (variantId && variantId < 90000) {
+            await fetch(ENDPOINTS.CART.ITEMS, {
+              method: "POST",
+              headers,
+              credentials: "include",
+              body: JSON.stringify({
+                variantId,
+                quantity: item.quantity,
+              }),
+            });
+          }
+        })
+      );
       return true;
     } catch (err) {
       console.warn("[checkoutService] Lỗi khi đồng bộ giỏ hàng lên server:", err);
@@ -286,7 +280,8 @@ export const checkoutService = {
   async validateCoupon(
     code: string,
     subtotal: number,
-    shippingFee: number
+    shippingFee: number,
+    phone?: string
   ): Promise<{
     valid: boolean;
     code?: string;
@@ -295,11 +290,15 @@ export const checkoutService = {
   }> {
     try {
       const headers = await this.getAuthHeaders();
-      const url = buildUrlWithQuery(ENDPOINTS.COUPONS.VALIDATE, {
+      const params: Record<string, string> = {
         code: code.trim().toUpperCase(),
         subtotal: String(Math.max(0, Math.round(subtotal))),
         shippingFee: String(Math.max(0, Math.round(shippingFee))),
-      });
+      };
+      if (phone && phone.trim()) {
+        params.phone = phone.trim();
+      }
+      const url = buildUrlWithQuery(ENDPOINTS.COUPONS.VALIDATE, params);
       const res = await fetch(url, {
         method: "GET",
         headers,
@@ -323,6 +322,42 @@ export const checkoutService = {
       return { valid: false, error: errorMessage };
     } catch {
       return { valid: false, error: "OFFLINE" };
+    }
+  },
+
+  /**
+   * Lấy danh sách các mã giảm giá công khai đang áp dụng: GET /api/v1/coupons/public
+   */
+  async getPublicCoupons(): Promise<Array<{
+    code: string;
+    name: string;
+    description: string;
+    discountType: string;
+    discountValue: number;
+    minOrderAmount: number;
+    targetCustomer: string;
+    scopeType: string;
+  }>> {
+    try {
+      const res = await fetch(ENDPOINTS.COUPONS.PUBLIC, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (res.ok) {
+        return (await res.json()) as Array<{
+          code: string;
+          name: string;
+          description: string;
+          discountType: string;
+          discountValue: number;
+          minOrderAmount: number;
+          targetCustomer: string;
+          scopeType: string;
+        }>;
+      }
+      return [];
+    } catch {
+      return [];
     }
   },
 

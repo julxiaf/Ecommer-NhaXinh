@@ -92,7 +92,18 @@ public class CartController extends BaseController {
         return toResponse(cartService.getCartById(cart.getId()));
     }
 
-    @DeleteMapping("/items")
+    @DeleteMapping("/items/by-variant/{variantId}")
+    public CartResponse removeItemByVariant(
+            @AuthenticationPrincipal UserDetails principal,
+            @RequestHeader(value = "X-Cart-Token", required = false) String token,
+            @PathVariable Long variantId
+    ) {
+        Cart cart = getCart(principal, token);
+        cartService.removeItemByVariant(cart.getId(), variantId);
+        return toResponse(cartService.getCartById(cart.getId()));
+    }
+
+    @DeleteMapping({"", "/items"})
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void clearCart(
             @AuthenticationPrincipal UserDetails principal,
@@ -106,6 +117,9 @@ public class CartController extends BaseController {
         if (principal != null) {
             User user = userService.findByUsername(principal.getUsername())
                     .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài khoản"));
+            if (token != null && token.length() >= 40 && token.length() <= 128) {
+                cartService.mergeGuestCartToUserCart(token, user);
+            }
             return cartService.getOrCreateCart(user, null);
         }
         if (token == null || token.length() < 40 || token.length() > 128) {
@@ -133,13 +147,31 @@ public class CartController extends BaseController {
 
     public record CartItemResponse(
             Long id,
+            Long productId,
+            String productSlug,
             Long variantId,
             String sku,
             String productName,
             String variantName,
             java.math.BigDecimal unitPrice,
             Integer quantity,
-            java.math.BigDecimal lineTotal
+            java.math.BigDecimal lineTotal,
+            String imageUrl,
+            Boolean isPreorder,
+            String stockStatus,
+            Integer availableStock
     ) {
+        public CartItemResponse(
+                Long id,
+                Long variantId,
+                String sku,
+                String productName,
+                String variantName,
+                java.math.BigDecimal unitPrice,
+                Integer quantity,
+                java.math.BigDecimal lineTotal
+        ) {
+            this(id, null, null, variantId, sku, productName, variantName, unitPrice, quantity, lineTotal, null, false, "IN_STOCK", 999);
+        }
     }
 }

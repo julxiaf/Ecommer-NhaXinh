@@ -14,6 +14,35 @@ public record CategoryRequest(
         @Size(max = 1000) String description,
         @Size(max = 1000) String imageUrl,
         @PositiveOrZero Integer sortOrder,
-        Boolean isActive
+        Boolean isActive,
+        Boolean isDeleted,
+        Boolean isCollection,
+        String categoryGroup
 ) {
+    public CategoryRequest(
+            String name,
+            String slug,
+            Long parentId,
+            String description,
+            String imageUrl,
+            Integer sortOrder,
+            Boolean isActive
+    ) {
+        this(name, slug, parentId, description, imageUrl, sortOrder, isActive, false, false, "PRODUCT");
+    }
+
+    public CategoryRequest(
+            String name,
+            String slug,
+            Long parentId,
+            String description,
+            String imageUrl,
+            Integer sortOrder,
+            Boolean isActive,
+            Boolean isDeleted,
+            Boolean isCollection
+    ) {
+        this(name, slug, parentId, description, imageUrl, sortOrder, isActive, isDeleted, isCollection,
+                Boolean.TRUE.equals(isCollection) ? "COLLECTION" : "PRODUCT");
+    }
 }

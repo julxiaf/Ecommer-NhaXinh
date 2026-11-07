@@ -21,9 +21,26 @@ public record CreateProductRequest(
         Long brandId,
         List<@NotNull Long> categoryIds,
         @Pattern(regexp = "DRAFT|ACTIVE") String status,
+        Boolean isPreorder,
+        String stockStatus,
         @NotEmpty List<@NotNull @Valid VariantRequest> variants,
         List<@NotNull @Valid MediaRequest> media
 ) {
+    public CreateProductRequest(
+            String name,
+            String slug,
+            String shortDescription,
+            String description,
+            String specifications,
+            Long brandId,
+            List<Long> categoryIds,
+            String status,
+            List<VariantRequest> variants,
+            List<MediaRequest> media
+    ) {
+        this(name, slug, shortDescription, description, specifications, brandId, categoryIds, status, false, "IN_STOCK", variants, media);
+    }
+
     public record VariantRequest(
             @NotBlank @Size(max = 100) String sku,
             @NotBlank @Size(max = 180) String name,
@@ -40,7 +57,7 @@ public record CreateProductRequest(
     }
 
     public record MediaRequest(
-            @NotBlank             @Pattern(regexp = "IMAGE|MODEL_3D") String mediaType,
+            @NotBlank @Pattern(regexp = "IMAGE|MODEL_3D") String mediaType,
             @Size(max = 1000) String mediaUrl,
             Integer fileIndex,
             @Size(max = 300) String altText,

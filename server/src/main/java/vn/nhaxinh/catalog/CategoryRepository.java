@@ -17,7 +17,25 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     List<Category> findByParentIsNullAndIsActiveTrueOrderBySortOrderAsc();
 
+    List<Category> findByParentIsNullAndIsActiveTrueAndIsDeletedFalseOrderBySortOrderAsc();
+
+    List<Category> findByParentIsNullAndCategoryGroupAndIsActiveTrueAndIsDeletedFalseOrderBySortOrderAsc(String categoryGroup);
+
     List<Category> findByParentIdAndIsActiveTrueOrderBySortOrderAsc(Long parentId);
 
+    List<Category> findByParentIdAndIsActiveTrueAndIsDeletedFalseOrderBySortOrderAsc(Long parentId);
+
     List<Category> findByIsActiveTrue(Sort sort);
+
+    List<Category> findByIsActiveTrueAndIsDeletedFalse(Sort sort);
+
+    List<Category> findByIsDeletedFalse(Sort sort);
+
+    List<Category> findByIsDeletedTrue(Sort sort);
+
+    List<Category> findByCategoryGroupAndIsActiveTrueAndIsDeletedFalse(String categoryGroup, Sort sort);
+
+    List<Category> findByCategoryGroupAndIsDeletedFalse(String categoryGroup, Sort sort);
+
+    List<Category> findByCategoryGroup(String categoryGroup, Sort sort);
 }
