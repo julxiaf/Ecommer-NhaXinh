@@ -21,10 +21,6 @@ public class PolicyController extends BaseController {
         this.policyService = policyService;
     }
 
-    @GetMapping
-    public PolicyContentResponse getPolicy() {
-        return policyService.getPolicy();
-    }
 
     @GetMapping("/all")
     public ResponseEntity<List<PolicyResponse>> getAllPublishedPolicies() {
@@ -36,8 +32,5 @@ public class PolicyController extends BaseController {
         return ResponseEntity.ok(policyService.getPolicyBySlug(slug));
     }
 
-    @PutMapping
-    public PolicyContentResponse updatePolicy(@Valid @RequestBody PolicyContentRequest request) {
-        return policyService.updatePolicy(request);
-    }
+ 
 }

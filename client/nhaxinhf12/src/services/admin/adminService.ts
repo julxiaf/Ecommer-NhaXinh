@@ -18,7 +18,8 @@ import { orderApi } from "./orderApi";
 import { rbacApi } from "./rbacApi";
 import { articleService } from "../articleService";
 import { couponApi } from "./couponApi";
-import { isCollectionCategory, DEFAULT_PLACEHOLDER_IMAGE } from "../productService";
+import { isCollectionCategory } from "../categoryService";
+import { DEFAULT_PLACEHOLDER_IMAGE } from "../productService";
 import {
   ALL_PERMISSIONS,
   INITIAL_ROLES,
@@ -105,6 +106,8 @@ if (typeof window !== "undefined") {
 
 class AdminApiService {
   private inMemoryStore = new Map<string, unknown>();
+  private cache = new Map<string, { data: unknown; expiresAt: number }>();
+  private inFlightRequests = new Map<string, Promise<unknown>>();
 
   private getStorage<T>(key: string, fallback: T): T {
     if (this.inMemoryStore.has(key)) {
@@ -117,18 +120,69 @@ class AdminApiService {
     this.inMemoryStore.set(key, val);
   }
 
-  // ── 1. Roles & Permissions ──
-  async getRoles(): Promise<RoleDefinition[]> {
-    try {
-      const list = await rbacApi.getRoles();
-      if (list && list.length > 0) {
-        this.setStorage("roles", list);
-        return list;
+  private async fetchWithCache<T>(
+    key: string,
+    ttlMs: number,
+    fetcher: () => Promise<T>,
+    force = false
+  ): Promise<T> {
+    const now = Date.now();
+    if (!force && this.cache.has(key)) {
+      const entry = this.cache.get(key);
+      if (entry && entry.expiresAt > now) {
+        return entry.data as T;
       }
-    } catch (e) {
-      console.warn("Lấy vai trò từ API thất bại, dùng dữ liệu dự phòng:", e);
     }
-    return this.getStorage<RoleDefinition[]>("roles", INITIAL_ROLES);
+
+    if (this.inFlightRequests.has(key)) {
+      return this.inFlightRequests.get(key) as Promise<T>;
+    }
+
+    const promise = (async () => {
+      try {
+        const data = await fetcher();
+        this.cache.set(key, { data, expiresAt: Date.now() + ttlMs });
+        this.setStorage(key, data);
+        return data;
+      } finally {
+        this.inFlightRequests.delete(key);
+      }
+    })();
+
+    this.inFlightRequests.set(key, promise);
+    return promise;
+  }
+
+  public invalidateCache(keyPattern?: string): void {
+    if (!keyPattern) {
+      this.cache.clear();
+      return;
+    }
+    for (const k of Array.from(this.cache.keys())) {
+      if (k.includes(keyPattern)) {
+        this.cache.delete(k);
+      }
+    }
+  }
+
+  // ── 1. Roles & Permissions ──
+  async getRoles(force = false): Promise<RoleDefinition[]> {
+    return this.fetchWithCache(
+      "roles",
+      5 * 60 * 1000,
+      async () => {
+        try {
+          const list = await rbacApi.getRoles();
+          if (list && list.length > 0) {
+            return list;
+          }
+        } catch (e) {
+          console.warn("Lấy vai trò từ API thất bại, dùng dữ liệu dự phòng:", e);
+        }
+        return this.getStorage<RoleDefinition[]>("roles", INITIAL_ROLES);
+      },
+      force
+    );
   }
 
   async saveRole(role: Partial<RoleDefinition>, actor?: AdminAuditLog["actor"]): Promise<void> {
@@ -158,6 +212,7 @@ class AdminApiService {
       createdRole,
     ];
     this.setStorage("roles", updatedList);
+    this.invalidateCache("roles");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -197,6 +252,7 @@ class AdminApiService {
       r.id === roleId ? { ...r, name: data.name, description: data.description } : r,
     );
     this.setStorage("roles", updatedList);
+    this.invalidateCache("roles");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -235,6 +291,7 @@ class AdminApiService {
 
     const updatedList = currentList.map((r) => (r.id === roleId ? { ...r, permissions } : r));
     this.setStorage("roles", updatedList);
+    this.invalidateCache("roles");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -270,6 +327,7 @@ class AdminApiService {
       "roles",
       currentList.filter((r) => r.id !== roleId),
     );
+    this.invalidateCache("roles");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -288,39 +346,47 @@ class AdminApiService {
   }
 
   // ── 1.1 Permissions Catalog ──
-  async getPermissions(module?: string): Promise<AdminPermissionItem[]> {
-    try {
-      const apiPerms = await rbacApi.getPermissions(module);
-      if (apiPerms && apiPerms.length > 0) {
-        const mapped: AdminPermissionItem[] = apiPerms.map((p) => ({
+  async getPermissions(module?: string, force = false): Promise<AdminPermissionItem[]> {
+    const cacheKey = `permissions_catalog_${module || "all"}`;
+    return this.fetchWithCache(
+      cacheKey,
+      5 * 60 * 1000,
+      async () => {
+        try {
+          const apiPerms = await rbacApi.getPermissions(module);
+          if (apiPerms && apiPerms.length > 0) {
+            const mapped: AdminPermissionItem[] = apiPerms.map((p) => ({
+              id: String(p.id),
+              code: p.code,
+              name: p.name,
+              module: p.module,
+              description: p.description,
+              status: "active",
+              roleCount: p.roles ? p.roles.length : 0,
+              roles: p.roles || [],
+            }));
+            this.setStorage("permissions_catalog", mapped);
+            return mapped;
+          }
+        } catch (e) {
+          console.warn("Lấy danh mục quyền từ API thất bại, dùng dữ liệu dự phòng:", e);
+        }
+
+        const defaultPerms: AdminPermissionItem[] = ALL_PERMISSIONS.map((p) => ({
           id: String(p.id),
-          code: p.code,
+          code: p.key,
           name: p.name,
           module: p.module,
           description: p.description,
           status: "active",
-          roleCount: p.roles ? p.roles.length : 0,
-          roles: p.roles || [],
+          roleCount: 0,
+          roles: [],
         }));
-        this.setStorage("permissions_catalog", mapped);
-        return mapped;
-      }
-    } catch (e) {
-      console.warn("Lấy danh mục quyền từ API thất bại, dùng dữ liệu dự phòng:", e);
-    }
-
-    const defaultPerms: AdminPermissionItem[] = ALL_PERMISSIONS.map((p) => ({
-      id: String(p.id),
-      code: p.key,
-      name: p.name,
-      module: p.module,
-      description: p.description,
-      status: "active",
-      roleCount: 0,
-      roles: [],
-    }));
-    const stored = this.getStorage<AdminPermissionItem[]>("permissions_catalog", defaultPerms);
-    return module && module !== "all" ? stored.filter((p) => p.module === module) : stored;
+        const stored = this.getStorage<AdminPermissionItem[]>("permissions_catalog", defaultPerms);
+        return module && module !== "all" ? stored.filter((p) => p.module === module) : stored;
+      },
+      force
+    );
   }
 
   async savePermission(
@@ -361,6 +427,7 @@ class AdminApiService {
 
     const currentList = await this.getPermissions();
     this.setStorage("permissions_catalog", [created, ...currentList.filter((p) => p.code !== code)]);
+    this.invalidateCache("permissions_catalog");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -395,6 +462,7 @@ class AdminApiService {
         : p,
     );
     this.setStorage("permissions_catalog", nextList);
+    this.invalidateCache("permissions_catalog");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -432,6 +500,7 @@ class AdminApiService {
       "permissions_catalog",
       currentList.filter((p) => String(p.id) !== String(id)),
     );
+    this.invalidateCache("permissions_catalog");
 
     if (existing?.code) {
       const roles = await this.getRoles();
@@ -442,6 +511,7 @@ class AdminApiService {
           permissions: r.permissions.filter((k) => k !== existing.code),
         })),
       );
+      this.invalidateCache("roles");
     }
 
     await this.logActivity({
@@ -461,18 +531,26 @@ class AdminApiService {
   }
 
   // ── 2. Categories & Collections ──
-  async getCategories(includeDeleted = false): Promise<AdminCategory[]> {
-    try {
-      const apiCategories = await catalogApi.getCategories(includeDeleted);
-      if (apiCategories && apiCategories.length > 0) {
-        this.setStorage("categories", apiCategories);
-        return apiCategories;
-      }
-    } catch (e) {
-      console.warn("Lấy danh mục từ API thất bại, dùng dữ liệu dự phòng:", e);
-    }
-    const stored = this.getStorage<AdminCategory[]>("categories", INITIAL_CATEGORIES);
-    return includeDeleted ? stored : stored.filter((c) => !c.isDeleted);
+  async getCategories(includeDeleted = false, force = false): Promise<AdminCategory[]> {
+    const key = `categories_${includeDeleted ? "all" : "active"}`;
+    return this.fetchWithCache(
+      key,
+      3 * 60 * 1000,
+      async () => {
+        try {
+          const apiCategories = await catalogApi.getCategories(includeDeleted);
+          if (apiCategories && apiCategories.length > 0) {
+            this.setStorage("categories", apiCategories);
+            return apiCategories;
+          }
+        } catch (e) {
+          console.warn("Lấy danh mục từ API thất bại, dùng dữ liệu dự phòng:", e);
+        }
+        const stored = this.getStorage<AdminCategory[]>("categories", INITIAL_CATEGORIES);
+        return includeDeleted ? stored : stored.filter((c) => !c.isDeleted);
+      },
+      force
+    );
   }
 
   async saveCategory(
@@ -522,6 +600,7 @@ class AdminApiService {
       this.setStorage("categories", list);
     }
 
+    this.invalidateCache("categories");
     const isCollection = isCollectionCategory(saved) || isCollectionCategory(cat);
     const label = isCollection ? "Bộ sưu tập" : "Danh mục";
 
@@ -561,6 +640,7 @@ class AdminApiService {
         );
       }
     }
+    this.invalidateCache("categories");
 
     if (category) {
       const isCollection = isCollectionCategory(category);
@@ -594,6 +674,7 @@ class AdminApiService {
         );
       }
     }
+    this.invalidateCache("categories");
 
     if (category) {
       const isCollection = isCollectionCategory(category);
@@ -611,23 +692,32 @@ class AdminApiService {
   }
 
   // ── 3. Products & Variants ──
-  async getProducts(includeDeleted = false): Promise<AdminProduct[]> {
-    try {
-      const apiProducts = await catalogApi.getProducts(includeDeleted);
-      if (apiProducts && apiProducts.length > 0) {
-        this.setStorage("products", apiProducts);
-        return apiProducts;
-      }
-      return apiProducts || [];
-    } catch (e) {
-      console.warn("Lấy danh sách sản phẩm từ API thất bại, dùng dữ liệu dự phòng:", e);
-      const stored = this.getStorage<AdminProduct[]>("products", INITIAL_PRODUCTS);
-      return includeDeleted ? stored : stored.filter((p) => !p.isDeleted);
-    }
+  async getProducts(includeDeleted = false, force = false): Promise<AdminProduct[]> {
+    const key = `products_${includeDeleted ? "all" : "active"}`;
+    return this.fetchWithCache(
+      key,
+      2 * 60 * 1000,
+      async () => {
+        try {
+          const apiProducts = await catalogApi.getProducts(includeDeleted);
+          if (apiProducts && apiProducts.length > 0) {
+            this.setStorage("products", apiProducts);
+            return apiProducts;
+          }
+          return apiProducts || [];
+        } catch (e) {
+          console.warn("Lấy danh sách sản phẩm từ API thất bại, dùng dữ liệu dự phòng:", e);
+          const stored = this.getStorage<AdminProduct[]>("products", INITIAL_PRODUCTS);
+          return includeDeleted ? stored : stored.filter((p) => !p.isDeleted);
+        }
+      },
+      force
+    );
   }
 
   async saveProduct(prod: AdminProductInput, actor?: AdminAuditLog["actor"]): Promise<AdminProduct> {
     const saved = await catalogApi.saveProduct(prod);
+    this.invalidateCache("products");
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
       action: prod.id ? "PRODUCT_UPDATED" : "PRODUCT_CREATED",
@@ -653,6 +743,7 @@ class AdminApiService {
     } catch {
       await catalogApi.setProductStatus(id, "ARCHIVED");
     }
+    this.invalidateCache("products");
     if (product) {
       await this.logActivity({
         actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -673,6 +764,7 @@ class AdminApiService {
     } catch {
       await catalogApi.setProductStatus(id, product?.status === "draft" ? "DRAFT" : "ACTIVE");
     }
+    this.invalidateCache("products");
     if (product) {
       await this.logActivity({
         actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -712,6 +804,7 @@ class AdminApiService {
       p.id === id ? { ...p, stock: newStock, status: "active" as const } : p,
     );
     this.setStorage("products", updated);
+    this.invalidateCache("products");
 
     if (product) {
       await this.logActivity({
@@ -733,18 +826,25 @@ class AdminApiService {
   }
 
   // ── 4. Orders ──
-  async getOrders(): Promise<AdminOrder[]> {
-    try {
-      const orders = await orderApi.getOrders({ size: 100 });
-      const deletedIds = new Set(this.getStorage<string[]>("orders_deleted", []));
-      return orders.map((o) => ({
-        ...o,
-        isDeleted: deletedIds.has(String(o.id)),
-      }));
-    } catch (e) {
-      console.error("Lấy danh sách đơn hàng từ API thất bại:", e);
-      return [];
-    }
+  async getOrders(force = false): Promise<AdminOrder[]> {
+    return this.fetchWithCache(
+      "orders",
+      30 * 1000,
+      async () => {
+        try {
+          const orders = await orderApi.getOrders({ size: 100 });
+          const deletedIds = new Set(this.getStorage<string[]>("orders_deleted", []));
+          return orders.map((o) => ({
+            ...o,
+            isDeleted: deletedIds.has(String(o.id)),
+          }));
+        } catch (e) {
+          console.error("Lấy danh sách đơn hàng từ API thất bại:", e);
+          return [];
+        }
+      },
+      force
+    );
   }
 
   async getOrderDetail(id: string | number): Promise<AdminOrder> {
@@ -778,6 +878,8 @@ class AdminApiService {
         ],
       };
     }
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
 
     void this.logActivity({
       actor,
@@ -834,6 +936,8 @@ class AdminApiService {
     actor?: AdminAuditLog["actor"],
   ): Promise<AdminOrder> {
     const updated = await orderApi.updateStatus(orderId, newStatus, note);
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
 
     void this.logActivity({
       actor: actor || { name: updatedBy, role: "Nhân viên quản trị" },
@@ -853,6 +957,8 @@ class AdminApiService {
     if (!deletedIds.includes(String(id))) {
       this.setStorage("orders_deleted", [...deletedIds, String(id)]);
     }
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
     void this.logActivity({
       actor,
       action: "ORDER_SOFT_DELETED",
@@ -870,6 +976,8 @@ class AdminApiService {
       "orders_deleted",
       deletedIds.filter((dId) => dId !== String(id)),
     );
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
     void this.logActivity({
       actor,
       action: "ORDER_RESTORED",
@@ -889,6 +997,8 @@ class AdminApiService {
     note?: string,
   ): Promise<AdminOrder> {
     const updated = await orderApi.updatePaymentStatus(orderId, paymentStatus, paymentMethod, note);
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
 
     void this.logActivity({
       actor,
@@ -921,6 +1031,8 @@ class AdminApiService {
     actor: AdminAuditLog["actor"],
   ): Promise<AdminOrder> {
     const updated = await orderApi.updateShippingInfo(orderId, data);
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
     void this.logActivity({
       actor,
       action: "ORDER_STATUS_CHANGED",
@@ -939,6 +1051,8 @@ class AdminApiService {
     actor: AdminAuditLog["actor"],
   ): Promise<AdminOrder> {
     const updated = await orderApi.cancelOrder(orderId, reason);
+    this.invalidateCache("orders");
+    this.invalidateCache("audit_logs");
     void this.logActivity({
       actor,
       action: "ORDER_STATUS_CHANGED",
@@ -952,17 +1066,24 @@ class AdminApiService {
   }
 
   // ── 5. Staff ──
-  async getStaff(): Promise<AdminStaff[]> {
-    try {
-      const list = await rbacApi.getStaff();
-      if (list && list.length > 0) {
-        this.setStorage("staff", list);
-        return list;
-      }
-    } catch (e) {
-      console.warn("Lấy nhân sự từ API thất bại, trả về danh sách rỗng:", e);
-    }
-    return this.getStorage<AdminStaff[]>("staff", []);
+  async getStaff(force = false): Promise<AdminStaff[]> {
+    return this.fetchWithCache(
+      "staff",
+      3 * 60 * 1000,
+      async () => {
+        try {
+          const list = await rbacApi.getStaff();
+          if (list && list.length > 0) {
+            this.setStorage("staff", list);
+            return list;
+          }
+        } catch (e) {
+          console.warn("Lấy nhân sự từ API thất bại, trả về danh sách rỗng:", e);
+        }
+        return this.getStorage<AdminStaff[]>("staff", []);
+      },
+      force
+    );
   }
 
   async saveStaff(
@@ -989,6 +1110,7 @@ class AdminApiService {
           : s,
       );
       this.setStorage("staff", updatedList);
+      this.invalidateCache("staff");
 
       await this.logActivity({
         actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -1039,6 +1161,7 @@ class AdminApiService {
     }
 
     this.setStorage("staff", [created, ...currentList]);
+    this.invalidateCache("staff");
 
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
@@ -1085,6 +1208,7 @@ class AdminApiService {
       "staff",
       currentList.map((s) => (s.id === userId ? { ...s, status } : s)),
     );
+    this.invalidateCache("staff");
 
     await this.logActivity({
       actor: resolvedActor,
@@ -1108,45 +1232,68 @@ class AdminApiService {
   }
 
   // ── 6. Discounts (Coupons) ──
-  async getDiscounts(): Promise<AdminDiscount[]> {
-    try {
-      return await couponApi.getDiscounts();
-    } catch (e) {
-      console.warn("[AdminService] Không thể tải danh sách giảm giá từ API:", e);
-      return INITIAL_DISCOUNTS;
-    }
+  async getDiscounts(force = false): Promise<AdminDiscount[]> {
+    return this.fetchWithCache(
+      "discounts",
+      3 * 60 * 1000,
+      async () => {
+        try {
+          return await couponApi.getDiscounts();
+        } catch (e) {
+          console.warn("[AdminService] Không thể tải danh sách giảm giá từ API:", e);
+          return INITIAL_DISCOUNTS;
+        }
+      },
+      force
+    );
   }
 
   async saveDiscount(disc: Partial<AdminDiscount>): Promise<AdminDiscount> {
-    return couponApi.saveDiscount(disc);
+    const saved = await couponApi.saveDiscount(disc);
+    this.invalidateCache("discounts");
+    return saved;
   }
 
   async deleteDiscount(id: string): Promise<void> {
     await couponApi.deleteDiscount(id);
+    this.invalidateCache("discounts");
   }
 
   // ── 7. Articles ──
-  async getArticles(): Promise<AdminArticle[]> {
-    try {
-      const serverArticles = await articleService.getAdminArticles();
-      if (serverArticles && serverArticles.length > 0) {
-        this.setStorage("articles", serverArticles);
-        return serverArticles;
-      }
-    } catch {
-      // Fallback nếu máy chủ mất kết nối
-    }
-    return this.getStorage<AdminArticle[]>("articles", INITIAL_ARTICLES);
+  async getArticles(force = false): Promise<AdminArticle[]> {
+    return this.fetchWithCache(
+      "articles",
+      3 * 60 * 1000,
+      async () => {
+        try {
+          const serverArticles = await articleService.getAdminArticles();
+          if (serverArticles && serverArticles.length > 0) {
+            this.setStorage("articles", serverArticles);
+            return serverArticles;
+          }
+        } catch {
+          // Fallback nếu máy chủ mất kết nối
+        }
+        return this.getStorage<AdminArticle[]>("articles", INITIAL_ARTICLES);
+      },
+      force
+    );
   }
 
   async saveArticle(art: Partial<AdminArticle>): Promise<AdminArticle> {
     try {
       if (art.id && !String(art.id).startsWith("art-")) {
         const updated = await articleService.updateArticle(art.id, art);
-        if (updated) return updated;
+        if (updated) {
+          this.invalidateCache("articles");
+          return updated;
+        }
       } else {
         const created = await articleService.createArticle(art);
-        if (created) return created;
+        if (created) {
+          this.invalidateCache("articles");
+          return created;
+        }
       }
     } catch (err) {
       console.warn("[adminService] Không thể lưu bài viết lên server, lưu tạm vào bộ nhớ:", err);
@@ -1158,6 +1305,7 @@ class AdminApiService {
       if (idx >= 0) {
         list[idx] = { ...list[idx], ...art };
         this.setStorage("articles", list);
+        this.invalidateCache("articles");
         return list[idx];
       }
     }
@@ -1178,6 +1326,7 @@ class AdminApiService {
     };
     list.unshift(newArt);
     this.setStorage("articles", list);
+    this.invalidateCache("articles");
     return newArt;
   }
 
@@ -1194,6 +1343,7 @@ class AdminApiService {
       "articles",
       list.map((a) => (a.id === id ? { ...a, isDeleted: true } : a)),
     );
+    this.invalidateCache("articles");
   }
 
   async restoreArticle(id: string): Promise<void> {
@@ -1209,6 +1359,7 @@ class AdminApiService {
       "articles",
       list.map((a) => (a.id === id ? { ...a, isDeleted: false } : a)),
     );
+    this.invalidateCache("articles");
   }
 
   async toggleArticleStatus(
@@ -1218,7 +1369,10 @@ class AdminApiService {
     try {
       if (!id.startsWith("art-")) {
         const updated = await articleService.toggleArticleStatus(id, status);
-        if (updated) return updated;
+        if (updated) {
+          this.invalidateCache("articles");
+          return updated;
+        }
       }
     } catch (err) {
       console.warn("[adminService] Lỗi cập nhật trạng thái bài viết:", err);
@@ -1229,14 +1383,22 @@ class AdminApiService {
       const nextStatus = status || (list[idx].status === "hidden" ? "published" : "hidden");
       list[idx] = { ...list[idx], status: nextStatus };
       this.setStorage("articles", list);
+      this.invalidateCache("articles");
       return list[idx];
     }
     return null;
   }
 
   // ── 8. Notifications ──
-  async getNotifications(): Promise<AdminNotification[]> {
-    return this.getStorage<AdminNotification[]>("notifications", INITIAL_NOTIFICATIONS);
+  async getNotifications(force = false): Promise<AdminNotification[]> {
+    return this.fetchWithCache(
+      "notifications",
+      45 * 1000,
+      async () => {
+        return this.getStorage<AdminNotification[]>("notifications", INITIAL_NOTIFICATIONS);
+      },
+      force
+    );
   }
 
   async createNotification(notif: Partial<AdminNotification>): Promise<AdminNotification> {
@@ -1252,6 +1414,7 @@ class AdminApiService {
     };
     list.unshift(newN);
     this.setStorage("notifications", list);
+    this.invalidateCache("notifications");
     return newN;
   }
 
@@ -1261,6 +1424,7 @@ class AdminApiService {
       "notifications",
       list.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
+    this.invalidateCache("notifications");
   }
 
   async markAllNotificationsRead(): Promise<void> {
@@ -1269,11 +1433,19 @@ class AdminApiService {
       "notifications",
       list.map((n) => ({ ...n, read: true })),
     );
+    this.invalidateCache("notifications");
   }
 
   // ── 9. Tickets ──
-  async getTickets(): Promise<AdminTicket[]> {
-    return this.getStorage<AdminTicket[]>("tickets", INITIAL_TICKETS);
+  async getTickets(force = false): Promise<AdminTicket[]> {
+    return this.fetchWithCache(
+      "tickets",
+      60 * 1000,
+      async () => {
+        return this.getStorage<AdminTicket[]>("tickets", INITIAL_TICKETS);
+      },
+      force
+    );
   }
 
   async replyTicket(id: string, replyText: string): Promise<void> {
@@ -1282,17 +1454,26 @@ class AdminApiService {
     if (idx >= 0) {
       list[idx] = { ...list[idx], reply: replyText, status: "resolved" };
       this.setStorage("tickets", list);
+      this.invalidateCache("tickets");
     }
   }
 
   // ── 10. Settings ──
-  async getSettings(): Promise<AdminSettingsConfig> {
-    return this.getStorage<AdminSettingsConfig>("settings", INITIAL_SETTINGS);
+  async getSettings(force = false): Promise<AdminSettingsConfig> {
+    return this.fetchWithCache(
+      "settings",
+      5 * 60 * 1000,
+      async () => {
+        return this.getStorage<AdminSettingsConfig>("settings", INITIAL_SETTINGS);
+      },
+      force
+    );
   }
 
   async saveSettings(cfg: AdminSettingsConfig, actor?: AdminAuditLog["actor"]): Promise<void> {
     const previous = await this.getSettings();
     this.setStorage("settings", cfg);
+    this.invalidateCache("settings");
     await this.logActivity({
       actor: actor || DEFAULT_ADMIN_ACTOR,
       action: "SETTINGS_CHANGED",
@@ -1305,19 +1486,26 @@ class AdminApiService {
   }
 
   // ── 11. Audit Logs ──
-  async getAuditLogs(): Promise<AdminAuditLog[]> {
-    const localLogs = this.getStorage<AdminAuditLog[]>("logs", INITIAL_AUDIT_LOGS);
-    try {
-      const apiLogs = await rbacApi.getAuditLogs();
-      if (apiLogs && apiLogs.length > 0) {
-        const seenIds = new Set(apiLogs.map((l) => l.id));
-        const uniqueLocal = localLogs.filter((l) => !seenIds.has(l.id));
-        return [...uniqueLocal, ...apiLogs];
-      }
-    } catch (e) {
-      console.warn("Lấy audit logs từ API thất bại, dùng nhật ký cục bộ:", e);
-    }
-    return localLogs;
+  async getAuditLogs(force = false): Promise<AdminAuditLog[]> {
+    return this.fetchWithCache(
+      "audit_logs",
+      30 * 1000,
+      async () => {
+        const localLogs = this.getStorage<AdminAuditLog[]>("logs", INITIAL_AUDIT_LOGS);
+        try {
+          const apiLogs = await rbacApi.getAuditLogs();
+          if (apiLogs && apiLogs.length > 0) {
+            const seenIds = new Set(apiLogs.map((l) => l.id));
+            const uniqueLocal = localLogs.filter((l) => !seenIds.has(l.id));
+            return [...uniqueLocal, ...apiLogs];
+          }
+        } catch (e) {
+          console.warn("Lấy audit logs từ API thất bại, dùng nhật ký cục bộ:", e);
+        }
+        return localLogs;
+      },
+      force
+    );
   }
 
   async logActivity(entry: Omit<AdminAuditLog, "id" | "timestamp">): Promise<AdminAuditLog> {
@@ -1334,6 +1522,7 @@ class AdminApiService {
     };
 
     this.setStorage("logs", [newLog, ...localLogs].slice(0, 500));
+    this.invalidateCache("audit_logs");
 
     void rbacApi
       .createAuditLog({

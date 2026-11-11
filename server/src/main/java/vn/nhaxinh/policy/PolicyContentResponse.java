@@ -9,13 +9,5 @@ public record PolicyContentResponse(
         String returnPolicy,
         LocalDateTime updatedAt
 ) {
-    static PolicyContentResponse from(PolicyPage page) {
-        return new PolicyContentResponse(
-                page.getTitle(),
-                page.getIntroduction(),
-                page.getPurchasePolicy(),
-                page.getReturnPolicy(),
-                page.getUpdatedAt()
-        );
-    }
+
 }

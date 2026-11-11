@@ -1,3 +1,9 @@
+/**
+ * productService.ts
+ * Service công khai (Client) phục vụ truy vấn sản phẩm, bộ lọc, tìm kiếm và chi tiết sản phẩm.
+ * Sử dụng apiClient chung để chuẩn hóa các yêu cầu HTTP và xử lý lỗi.
+ */
+
 import type {
   Product,
   ProductQueryParams,
@@ -5,54 +11,19 @@ import type {
   BackendProductDetail,
   ProductMediaItem,
 } from "../types/catalog";
-import { ENDPOINTS, buildUrlWithQuery } from "./apiEndpoints";
+import { ENDPOINTS } from "./apiEndpoints";
+import { apiClient } from "./apiClient";
+import { isCollectionCategory } from "./categoryService";
+
+// Re-export để tương thích ngược với các file đã import từ productService
+export { isCollectionCategory };
 
 // ══════════════════════════════════════════════════════════
-// 1. SHARED CATALOG CONSTANTS & HELPERS
+// 1. SHARED PRODUCT CONSTANTS & HELPERS
 // ══════════════════════════════════════════════════════════
 
 export const DEFAULT_PLACEHOLDER_IMAGE =
   "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
-
-const COLLECTION_SLUGS = new Set([
-  "bo-suu-tap",
-  "orientale",
-  "victoria",
-  "duong-dai",
-  "osaka",
-  "coastal",
-  "may",
-]);
-
-/**
- * Kiểm tra xem một danh mục có thuộc nhóm Bộ sưu tập (Collection) hay không.
- * Dùng chung cho cả Client (`productService`) và Admin (`catalogApi`, `adminService`).
- */
-export function isCollectionCategory(
-  cat?: {
-    slug?: string | null;
-    name?: string | null;
-    categoryGroup?: string | null;
-    parentId?: string | number | null;
-    isCollection?: boolean;
-  } | null,
-): boolean {
-  if (!cat) return false;
-  if (cat.isCollection || cat.categoryGroup === "COLLECTION") return true;
-
-  const parentIdStr = cat.parentId != null ? String(cat.parentId) : "";
-  if (parentIdStr === "15" || parentIdStr === "cat-collections") return true;
-
-  const slug = (cat.slug || "").toLowerCase().trim();
-  const name = (cat.name || "").toLowerCase().trim();
-
-  return (
-    COLLECTION_SLUGS.has(slug) ||
-    slug.startsWith("bst-") ||
-    slug.includes("bo-suu-tap") ||
-    name.includes("bộ sưu tập")
-  );
-}
 
 /**
  * Chuẩn hóa đường dẫn ảnh sản phẩm (trả về `{ img1, img2 }` tương thích với toàn bộ UI Client & Admin).
@@ -76,52 +47,6 @@ function computeDiscount(price: number, originalPrice?: number): number | undefi
   return undefined;
 }
 
-// ══════════════════════════════════════════════════════════
-// 2. INTERNAL HTTP HELPER (Hỗ trợ tự động retry khi 502/503/504)
-// ══════════════════════════════════════════════════════════
-
-const TRANSIENT_GATEWAY_STATUSES = new Set([502, 503, 504]);
-
-async function fetchJson<T>(
-  url: string,
-  options: RequestInit = {},
-  retries = 1,
-): Promise<T | null> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...(options.headers as Record<string, string>),
-        },
-      });
-
-      if (TRANSIENT_GATEWAY_STATUSES.has(response.status) && attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
-        continue;
-      }
-
-      if (!response.ok) {
-        return null;
-      }
-
-      return (await response.json()) as T;
-    } catch (err) {
-      if (options.signal?.aborted) {
-        return null;
-      }
-      if (attempt < retries) {
-        await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
-        continue;
-      }
-      console.warn(`[productService] Fetch error on ${url}:`, err);
-      return null;
-    }
-  }
-  return null;
-}
-
 function extractSummaryContent(
   data: BackendProductSummary[] | { content?: BackendProductSummary[] } | null,
 ): BackendProductSummary[] {
@@ -132,10 +57,10 @@ function extractSummaryContent(
 }
 
 // ══════════════════════════════════════════════════════════
-// 3. BACKEND DTO -> FRONTEND MODEL MAPPERS
+// 2. BACKEND DTO -> FRONTEND MODEL MAPPERS
 // ══════════════════════════════════════════════════════════
 
-function mapSummaryToProduct(summary: BackendProductSummary): Product {
+export function mapSummaryToProduct(summary: BackendProductSummary): Product {
   const price = summary.minPrice ? Number(summary.minPrice) : Number(summary.price || 0);
   const originalPrice = summary.compareAtPrice
     ? Number(summary.compareAtPrice)
@@ -179,7 +104,7 @@ function mapSummaryToProduct(summary: BackendProductSummary): Product {
   };
 }
 
-function mapDetailToProduct(detail: BackendProductDetail): Product {
+export function mapDetailToProduct(detail: BackendProductDetail): Product {
   const primaryMedia = detail.media?.find((m) => m.isPrimary) || detail.media?.[0];
   const secondaryMedia =
     detail.media?.find((m) => !m.isPrimary && (m.mediaType === "IMAGE" || !m.mediaType)) ||
@@ -254,8 +179,12 @@ function mapDetailToProduct(detail: BackendProductDetail): Product {
 }
 
 // ══════════════════════════════════════════════════════════
-// 4. PUBLIC PRODUCT SERVICE
+// 3. PUBLIC PRODUCT SERVICE (GENERIC CONSOLIDATED METHODS)
 // ══════════════════════════════════════════════════════════
+
+const cachedFeaturedMap = new Map<number, { data: Product[]; time: number }>();
+const inFlightFeaturedMap = new Map<number, Promise<Product[]>>();
+const FEATURED_CACHE_TTL = 60_000;
 
 export const productService = {
   /**
@@ -277,26 +206,35 @@ export const productService = {
     const term = query.trim().toLowerCase();
     if (term.length < 2) return [];
 
-    const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.SEARCH, { keyword: term, size: 6 });
-    const data = await fetchJson<
-      BackendProductSummary[] | { content?: BackendProductSummary[] }
-    >(url, { signal }, 0);
+    try {
+      const data = await apiClient.get<BackendProductSummary[] | { content?: BackendProductSummary[] }>(
+        ENDPOINTS.PRODUCTS.SEARCH,
+        {
+          params: { keyword: term, size: 6 },
+          signal,
+          retries: 0,
+        }
+      );
 
-    return extractSummaryContent(data).map((item) => {
-      const p = mapSummaryToProduct(item);
-      return {
-        id: p.id,
-        name: p.name,
-        slug: p.slug,
-        price: p.price,
-        image: p.image,
-        category: p.category,
-      };
-    });
+      return extractSummaryContent(data).map((item) => {
+        const p = mapSummaryToProduct(item);
+        return {
+          id: p.id,
+          name: p.name,
+          slug: p.slug,
+          price: p.price,
+          image: p.image,
+          category: p.category,
+        };
+      });
+    } catch {
+      return [];
+    }
   },
 
   /**
-   * Lấy danh sách sản phẩm từ API backend (hỗ trợ phân trang, lọc, sắp xếp)
+   * Hàm tổng quát duy nhất (Generic/Consolidated) lấy danh sách sản phẩm:
+   * Hỗ trợ tìm kiếm theo từ khóa (keyword), theo danh mục (categoryId), phân trang (page, size), sắp xếp (sort, dir).
    */
   async getProducts(params?: ProductQueryParams): Promise<Product[]> {
     let baseUrl: string = ENDPOINTS.PRODUCTS.BASE;
@@ -314,35 +252,58 @@ export const productService = {
       baseUrl = ENDPOINTS.PRODUCTS.BY_CATEGORY(params.categoryId);
     }
 
-    const finalUrl = buildUrlWithQuery(baseUrl, queryParams);
-    const data = await fetchJson<
-      BackendProductSummary[] | { content?: BackendProductSummary[] }
-    >(finalUrl);
+    try {
+      const data = await apiClient.get<BackendProductSummary[] | { content?: BackendProductSummary[] }>(
+        baseUrl,
+        { params: queryParams }
+      );
 
-    let products = extractSummaryContent(data).map(mapSummaryToProduct);
+      let products = extractSummaryContent(data).map(mapSummaryToProduct);
 
-    if (params?.category) {
-      const catLower = params.category.toLowerCase();
-      products = products.filter((p) => p.category.toLowerCase().includes(catLower));
+      if (params?.category) {
+        const catLower = params.category.toLowerCase();
+        products = products.filter((p) => p.category.toLowerCase().includes(catLower));
+      }
+
+      return products;
+    } catch (err) {
+      console.warn("[productService] Lỗi khi lấy danh sách sản phẩm:", err);
+      return [];
     }
-
-    return products;
   },
 
   /**
-   * Alias: Lấy danh sách sản phẩm thuần API
+   * Helper shortcut: Lấy danh sách sản phẩm thuần API (Tương thích ngược)
    */
   async getProductsFromApi(params?: ProductQueryParams): Promise<Product[]> {
     return this.getProducts(params);
   },
 
   /**
-   * Lấy chi tiết sản phẩm theo slug
+   * Helper shortcut: Tìm kiếm sản phẩm theo từ khóa
+   */
+  async searchProducts(keyword: string): Promise<Product[]> {
+    return this.getProducts({ keyword });
+  },
+
+  /**
+   * Helper shortcut: Lấy danh sách sản phẩm theo danh mục ID
+   */
+  async getProductsByCategory(categoryId: number): Promise<Product[]> {
+    return this.getProducts({ categoryId });
+  },
+
+  /**
+   * Lấy chi tiết sản phẩm theo slug (kèm fallback tìm kiếm)
    */
   async getProductBySlug(slug: string): Promise<Product | null> {
-    const detail = await fetchJson<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_SLUG(slug));
-    if (detail) {
-      return mapDetailToProduct(detail);
+    try {
+      const detail = await apiClient.get<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_SLUG(slug));
+      if (detail) {
+        return mapDetailToProduct(detail);
+      }
+    } catch {
+      // Fallback
     }
 
     const allProducts = await this.getProducts({ size: 100 });
@@ -350,30 +311,20 @@ export const productService = {
   },
 
   /**
-   * Lấy chi tiết sản phẩm theo ID
+   * Lấy chi tiết sản phẩm theo ID (kèm fallback tìm kiếm)
    */
   async getDetailProduct(id: number): Promise<Product | null> {
-    const detail = await fetchJson<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_ID(id));
-    if (detail) {
-      return mapDetailToProduct(detail);
+    try {
+      const detail = await apiClient.get<BackendProductDetail>(ENDPOINTS.PRODUCTS.BY_ID(id));
+      if (detail) {
+        return mapDetailToProduct(detail);
+      }
+    } catch {
+      // Fallback
     }
 
     const allProducts = await this.getProducts({ size: 100 });
     return allProducts.find((p) => p.id === id) ?? null;
-  },
-
-  /**
-   * Tìm kiếm sản phẩm theo từ khóa
-   */
-  async searchProducts(keyword: string): Promise<Product[]> {
-    return this.getProducts({ keyword });
-  },
-
-  /**
-   * Lấy danh sách sản phẩm theo danh mục ID
-   */
-  async getProductsByCategory(categoryId: number): Promise<Product[]> {
-    return this.getProducts({ categoryId });
   },
 
   /**
@@ -402,33 +353,70 @@ export const productService = {
     productIdOrSlug: number | string,
     type?: "IMAGE" | "VIDEO" | "MODEL_3D" | string,
   ): Promise<ProductMediaItem[]> {
-    const url = buildUrlWithQuery(
-      ENDPOINTS.PRODUCTS.MEDIA(productIdOrSlug),
-      type ? { type } : undefined,
-    );
-    const data = await fetchJson<ProductMediaItem[]>(url);
-    return Array.isArray(data) ? data : [];
+    try {
+      const data = await apiClient.get<ProductMediaItem[]>(
+        ENDPOINTS.PRODUCTS.MEDIA(productIdOrSlug),
+        { params: type ? { type } : undefined }
+      );
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
   },
 
   /**
    * Lấy toàn bộ ảnh (IMAGE) của sản phẩm theo id hoặc slug
    */
   async getProductImages(productIdOrSlug: number | string): Promise<ProductMediaItem[]> {
-    const data = await fetchJson<ProductMediaItem[]>(ENDPOINTS.PRODUCTS.IMAGES(productIdOrSlug));
-    return Array.isArray(data) ? data : [];
+    try {
+      const data = await apiClient.get<ProductMediaItem[]>(
+        ENDPOINTS.PRODUCTS.IMAGES(productIdOrSlug)
+      );
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
   },
 
   /**
-   * Danh sách sản phẩm nổi bật
+   * Danh sách sản phẩm nổi bật (có in-flight deduplication & in-memory TTL caching)
    */
   async getFeaturedProducts(limit = 8): Promise<Product[]> {
-    const url = buildUrlWithQuery(ENDPOINTS.PRODUCTS.FEATURED, { limit });
-    const list = await fetchJson<BackendProductSummary[]>(url);
-    if (Array.isArray(list) && list.length > 0) {
-      return list.map(mapSummaryToProduct);
+    const cached = cachedFeaturedMap.get(limit);
+    if (cached && Date.now() - cached.time < FEATURED_CACHE_TTL && cached.data.length > 0) {
+      return cached.data;
+    }
+    const inFlight = inFlightFeaturedMap.get(limit);
+    if (inFlight) {
+      return inFlight;
     }
 
-    const prods = await this.getProducts({ size: limit });
-    return prods.slice(0, limit);
+    const promise = (async () => {
+      try {
+        const list = await apiClient.get<BackendProductSummary[]>(
+          ENDPOINTS.PRODUCTS.FEATURED,
+          { params: { limit } }
+        );
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped = list.map(mapSummaryToProduct);
+          cachedFeaturedMap.set(limit, { data: mapped, time: Date.now() });
+          return mapped;
+        }
+      } catch {
+        // Fallback
+      }
+
+      const prods = await this.getProducts({ size: limit });
+      const sliced = prods.slice(0, limit);
+      if (sliced.length > 0) {
+        cachedFeaturedMap.set(limit, { data: sliced, time: Date.now() });
+      }
+      return sliced;
+    })().finally(() => {
+      inFlightFeaturedMap.delete(limit);
+    });
+
+    inFlightFeaturedMap.set(limit, promise);
+    return promise;
   },
 };

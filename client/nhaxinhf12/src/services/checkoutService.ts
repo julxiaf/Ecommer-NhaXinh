@@ -1,6 +1,7 @@
 import type { CartItem } from "../hooks/useStore";
-import { ENDPOINTS, buildUrlWithQuery } from "./apiEndpoints";
+import { ENDPOINTS } from "./apiEndpoints";
 import { cartService } from "./cartService";
+import { apiClient } from "./apiClient";
 
 export interface CheckoutApiRequest {
   recipientName: string;
@@ -59,12 +60,10 @@ export interface OrderDetailData {
 export const apiaddress = {
   async getAllProvince() {
     try {
-      const res = await fetch(ENDPOINTS.ADDRESSKIT.PROVINCEALL);
-      if (!res.ok) {
-        throw new Error(`Lỗi HTTP! Trạng thái: ${res.status}`);
-      }
-      const data = await res.json();
-      return data.provinces || [];
+      const data = await apiClient.get<{ provinces?: any[] }>(ENDPOINTS.ADDRESSKIT.PROVINCEALL, {
+        skipAuth: true,
+      });
+      return data?.provinces || [];
     } catch (error) {
       console.error("Không thể lấy danh sách tỉnh/thành phố:", error);
       return [];
@@ -72,17 +71,16 @@ export const apiaddress = {
   },
   async getProvinceDetail(id: string | number) {
     try {
-      const res = await fetch(ENDPOINTS.ADDRESSKIT.PROVINCECODE(String(id)));
-      if (!res.ok) {
-        throw new Error(`Lỗi HTTP! Trạng thái: ${res.status}`);
-      }
-      const data = await res.json();
-      return data.communes || [];
+      const data = await apiClient.get<{ communes?: any[] }>(
+        ENDPOINTS.ADDRESSKIT.PROVINCECODE(String(id)),
+        { skipAuth: true }
+      );
+      return data?.communes || [];
     } catch (error) {
       console.error("Không thể lấy danh sách xã/phường:", error);
       return [];
     }
-  }
+  },
 };
 export const checkoutService = {
   /**
@@ -186,38 +184,18 @@ export const checkoutService = {
         await this.syncCartToServer(cartItems);
       }
 
-      // 2. Gửi request checkout
+      // 2. Gửi request checkout qua apiClient
       const headers = await this.getAuthHeaders();
-      const res = await fetch(ENDPOINTS.CHECKOUT.BASE, {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: JSON.stringify(request),
-      });
-      console.log("Checkout",res)
-      if (res.ok) {
-        const data: CheckoutApiResponse = await res.json();
-        return { success: true, data };
-      }
-
-      // Xử lý lỗi từ server (400, 422, 500)
-      let errorMessage = "Thanh toán không thành công. Vui lòng kiểm tra lại thông tin.";
-      try {
-        const errJson = await res.json();
-        if (errJson.message) {
-          errorMessage = errJson.message;
-        } else if (errJson.error) {
-          errorMessage = errJson.error;
-        }
-      } catch {
-        // Bỏ qua lỗi parse
-      }
-
-      return { success: false, error: errorMessage };
+      const data = await apiClient.post<CheckoutApiResponse>(
+        ENDPOINTS.CHECKOUT.BASE,
+        request,
+        { headers }
+      );
+      return { success: true, data };
     } catch (err: any) {
       return {
         success: false,
-        error: err.message || "Lỗi kết nối tới máy chủ thanh toán. Vui lòng thử lại sau.",
+        error: err.message || "Thanh toán không thành công. Vui lòng kiểm tra lại thông tin.",
       };
     }
   },
@@ -228,15 +206,13 @@ export const checkoutService = {
   async getOrderDetail(orderCode: string, phone?: string): Promise<OrderDetailData | null> {
     try {
       const headers = await this.getAuthHeaders();
-      const url = buildUrlWithQuery(ENDPOINTS.ORDERS.BY_CODE(orderCode), phone ? { phone } : undefined);
-      const res = await fetch(url, { headers });
-      if (res.ok) {
-        return await res.json();
-      }
+      return await apiClient.get<OrderDetailData>(ENDPOINTS.ORDERS.BY_CODE(orderCode), {
+        params: phone ? { phone } : undefined,
+        headers,
+      });
     } catch {
-      // Bỏ qua
+      return null;
     }
-    return null;
   },
 
   /**
@@ -249,26 +225,15 @@ export const checkoutService = {
   ): Promise<{ success: boolean; data?: CheckoutApiResponse; error?: string }> {
     try {
       const headers = await this.getAuthHeaders();
-      const url = buildUrlWithQuery(ENDPOINTS.CHECKOUT.RETRY_PAYMENT(orderCode), phone ? { phone } : undefined);
-      const res = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ paymentMethod }),
-      });
-
-      if (res.ok) {
-        const data: CheckoutApiResponse = await res.json();
-        return { success: true, data };
-      }
-
-      let errorMessage = "Không thể thanh toán lại. Vui lòng thử lại.";
-      try {
-        const errJson = await res.json();
-        if (errJson.message) errorMessage = errJson.message;
-      } catch {
-        // Bỏ qua
-      }
-      return { success: false, error: errorMessage };
+      const data = await apiClient.post<CheckoutApiResponse>(
+        ENDPOINTS.CHECKOUT.RETRY_PAYMENT(orderCode),
+        { paymentMethod },
+        {
+          params: phone ? { phone } : undefined,
+          headers,
+        }
+      );
+      return { success: true, data };
     } catch (err: any) {
       return { success: false, error: err.message || "Lỗi kết nối máy chủ." };
     }
@@ -290,38 +255,27 @@ export const checkoutService = {
   }> {
     try {
       const headers = await this.getAuthHeaders();
-      const params: Record<string, string> = {
+      const params: Record<string, unknown> = {
         code: code.trim().toUpperCase(),
-        subtotal: String(Math.max(0, Math.round(subtotal))),
-        shippingFee: String(Math.max(0, Math.round(shippingFee))),
+        subtotal: Math.max(0, Math.round(subtotal)),
+        shippingFee: Math.max(0, Math.round(shippingFee)),
       };
       if (phone && phone.trim()) {
         params.phone = phone.trim();
       }
-      const url = buildUrlWithQuery(ENDPOINTS.COUPONS.VALIDATE, params);
-      const res = await fetch(url, {
-        method: "GET",
-        headers,
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return {
-          valid: true,
-          code: data.code,
-          discountAmount: Number(data.discountAmount || 0),
-        };
-      }
-      let errorMessage = "Mã giảm giá không hợp lệ hoặc đã hết hạn.";
-      try {
-        const errJson = await res.json();
-        if (errJson.message) errorMessage = errJson.message;
-      } catch {
-        // Bỏ qua
-      }
-      return { valid: false, error: errorMessage };
-    } catch {
-      return { valid: false, error: "OFFLINE" };
+
+      const data = await apiClient.get<{ code: string; discountAmount?: number }>(
+        ENDPOINTS.COUPONS.VALIDATE,
+        { params, headers }
+      );
+
+      return {
+        valid: true,
+        code: data.code,
+        discountAmount: Number(data.discountAmount || 0),
+      };
+    } catch (err: any) {
+      return { valid: false, error: err.message || "Mã giảm giá không hợp lệ hoặc đã hết hạn." };
     }
   },
 
@@ -339,23 +293,8 @@ export const checkoutService = {
     scopeType: string;
   }>> {
     try {
-      const res = await fetch(ENDPOINTS.COUPONS.PUBLIC, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (res.ok) {
-        return (await res.json()) as Array<{
-          code: string;
-          name: string;
-          description: string;
-          discountType: string;
-          discountValue: number;
-          minOrderAmount: number;
-          targetCustomer: string;
-          scopeType: string;
-        }>;
-      }
-      return [];
+      const data = await apiClient.get<any[]>(ENDPOINTS.COUPONS.PUBLIC, { skipAuth: true });
+      return Array.isArray(data) ? data : [];
     } catch {
       return [];
     }
@@ -375,28 +314,17 @@ export const checkoutService = {
   }> {
     try {
       const headers = await this.getAuthHeaders();
-      const res = await fetch(
+      const data = await apiClient.post<{ success?: boolean; recipientEmail?: string; message?: string }>(
         ENDPOINTS.NOTIFICATIONS.RESEND_ORDER_EMAIL(orderCode),
-        {
-          method: "POST",
-          headers,
-          credentials: "include",
-          body: JSON.stringify({ email: email?.trim() || undefined }),
-        }
+        { email: email?.trim() || undefined },
+        { headers }
       );
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        return {
-          success: Boolean(data.success),
-          recipientEmail: data.recipientEmail,
-          message:
-            data.message ||
-            `Đã gửi thông báo đơn hàng #${orderCode} tới email ${data.recipientEmail || email}`,
-        };
-      }
       return {
-        success: false,
-        error: data.message || "Không thể gửi thông báo email lúc này.",
+        success: Boolean(data?.success),
+        recipientEmail: data?.recipientEmail,
+        message:
+          data?.message ||
+          `Đã gửi thông báo đơn hàng #${orderCode} tới email ${data?.recipientEmail || email}`,
       };
     } catch (err: any) {
       return {

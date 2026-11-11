@@ -261,7 +261,7 @@
 /* ── Topbar (Clean Light Header) ── */
 .admin-topbar {
   background: var(--admin-surface);
-  /* border-bottom: 1px solid var(--admin-border); */
+  border-bottom: 1px solid var(--admin-border);
   padding: 14px 28px;
   height: 68px;
   display: flex;

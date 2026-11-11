@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Positive;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -20,6 +22,7 @@ import vn.nhaxinh.user.*;
 @Transactional
 public class CartController extends BaseController {
 
+    private static final Logger log = LoggerFactory.getLogger(CartController.class);
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CartService cartService;
@@ -61,10 +64,17 @@ public class CartController extends BaseController {
             @Valid @RequestBody AddCartItemRequest request
     ) {
         Cart cart = getCart(principal, token);
+        log.info("[CART] Controller nhận request thêm sản phẩm: variantId={}, quantity={}, cartId={}, tokenMasked={}",
+                request.variantId(), request.quantity(), cart.getId(), CartLoggingHelper.maskToken(token));
         ProductVariant variant = variantRepository.findById(request.variantId())
                 .filter(item -> "ACTIVE".equalsIgnoreCase(item.getStatus())
                         && "ACTIVE".equalsIgnoreCase(item.getProduct().getStatus()))
-                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy sản phẩm đang kinh doanh"));
+                .orElseThrow(() -> {
+                    log.warn("[CART] Lỗi nghiệp vụ: variantId={} không tồn tại hoặc đã ngừng kinh doanh (cartId={})",
+                            request.variantId(), cart.getId());
+                    return new IllegalArgumentException("Không tìm thấy sản phẩm đang kinh doanh");
+                });
+
         cartService.addItem(cart, variant, request.quantity());
         return toResponse(cartService.getCartById(cart.getId()));
     }

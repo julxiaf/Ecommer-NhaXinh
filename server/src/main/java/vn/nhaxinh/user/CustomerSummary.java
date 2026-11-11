@@ -10,7 +10,7 @@ import org.hibernate.annotations.Immutable;
 
 @Entity
 @Immutable
-@Table(name = "v_customer_summary")
+@Table(name = "customer_summary")
 public class CustomerSummary {
 
     @Id

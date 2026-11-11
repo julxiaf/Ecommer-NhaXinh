@@ -1,15 +1,146 @@
 import type { CategoryItem, BackendCategoryResponse } from "../types/catalog";
-import { productService, DEFAULT_PLACEHOLDER_IMAGE } from "./productService";
 import { ENDPOINTS } from "./apiEndpoints";
+import { apiClient } from "./apiClient";
+
+// ══════════════════════════════════════════════════════════
+// 1. COLLECTION & CATEGORY METADATA & CONSTANTS
+// ══════════════════════════════════════════════════════════
+
+export interface CollectionMetadata {
+  subtitle?: string;
+  introQuote?: string;
+  storyTitle?: string;
+  videoUrl?: string;
+  galleryImages?: string[];
+  styleTag?: string;
+  materials?: string;
+  productIds?: number[];
+}
+
+export const COLLECTION_SLUGS = new Set([
+  "bo-suu-tap",
+  "orientale",
+  "victoria",
+  "duong-dai",
+  "osaka",
+  "coastal",
+  "may",
+]);
+
+const COLLECTION_META_DELIMITER = "\n<!--NX_COLLECTION_META:";
+const COLLECTION_META_END = "-->";
+
+/**
+ * Kiểm tra xem một danh mục có thuộc nhóm Bộ sưu tập (Collection) hay không.
+ */
+export function isCollectionCategory(
+  cat?: {
+    slug?: string | null;
+    name?: string | null;
+    categoryGroup?: string | null;
+    parentId?: string | number | null;
+    isCollection?: boolean;
+  } | null
+): boolean {
+  if (!cat) return false;
+  if (cat.isCollection || cat.categoryGroup === "COLLECTION") return true;
+
+  const parentIdStr = cat.parentId != null ? String(cat.parentId) : "";
+  if (parentIdStr === "15" || parentIdStr === "cat-collections") return true;
+
+  const slug = (cat.slug || "").toLowerCase().trim();
+  const name = (cat.name || "").toLowerCase().trim();
+
+  return (
+    COLLECTION_SLUGS.has(slug) ||
+    slug.startsWith("bst-") ||
+    slug.includes("bo-suu-tap") ||
+    name.includes("bộ sưu tập")
+  );
+}
+
+/**
+ * Phân tích cú pháp metadata của Bộ sưu tập (subtitle, videoUrl, gallery, tags) từ description
+ */
+export function parseCollectionMeta(rawDescription?: string | null): {
+  cleanDescription?: string;
+  meta: CollectionMetadata;
+} {
+  if (!rawDescription) return { cleanDescription: undefined, meta: {} };
+  const idx = rawDescription.indexOf(COLLECTION_META_DELIMITER);
+  if (idx === -1) {
+    return { cleanDescription: rawDescription.trim() || undefined, meta: {} };
+  }
+
+  const cleanDescription = rawDescription.slice(0, idx).trim() || undefined;
+  const metaStart = idx + COLLECTION_META_DELIMITER.length;
+  const metaEnd = rawDescription.indexOf(COLLECTION_META_END, metaStart);
+  const jsonStr =
+    metaEnd !== -1
+      ? rawDescription.slice(metaStart, metaEnd).trim()
+      : rawDescription.slice(metaStart).trim();
+
+  try {
+    const parsed = JSON.parse(jsonStr) as CollectionMetadata;
+    return { cleanDescription, meta: parsed || {} };
+  } catch {
+    return { cleanDescription: rawDescription.trim() || undefined, meta: {} };
+  }
+}
+
+/**
+ * Tuần tự hóa metadata Bộ sưu tập vào description lưu database
+ */
+export function serializeCollectionMeta(category: {
+  description?: string | null;
+  subtitle?: string | null;
+  introQuote?: string | null;
+  storyTitle?: string | null;
+  videoUrl?: string | null;
+  styleTag?: string | null;
+  materials?: string | null;
+  galleryImages?: string[];
+  productIds?: number[];
+}): string | null {
+  const baseDesc = category.description?.trim() || "";
+  const meta: CollectionMetadata = {};
+
+  if (category.subtitle?.trim()) meta.subtitle = category.subtitle.trim();
+  if (category.introQuote?.trim()) meta.introQuote = category.introQuote.trim();
+  if (category.storyTitle?.trim()) meta.storyTitle = category.storyTitle.trim();
+  if (category.videoUrl?.trim()) meta.videoUrl = category.videoUrl.trim();
+  if (category.styleTag?.trim()) meta.styleTag = category.styleTag.trim();
+  if (category.materials?.trim()) meta.materials = category.materials.trim();
+  if (category.galleryImages && category.galleryImages.length > 0) {
+    meta.galleryImages = category.galleryImages.filter((u) => u && u.trim() !== "");
+  }
+  if (category.productIds && category.productIds.length > 0) {
+    meta.productIds = category.productIds;
+  }
+
+  const hasMeta = Object.keys(meta).length > 0;
+  if (!hasMeta) {
+    return baseDesc || null;
+  }
+  return `${baseDesc}${COLLECTION_META_DELIMITER}${JSON.stringify(meta)}${COLLECTION_META_END}`;
+}
+
+// ══════════════════════════════════════════════════════════
+// 2. CLIENT CATEGORY SERVICE
+// ══════════════════════════════════════════════════════════
 
 // Cache in-memory để giảm thiểu requests trùng lặp
 let cachedCategories: CategoryItem[] | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL = 60 * 1000; // 1 phút
+let inFlightFetch: Promise<CategoryItem[]> | null = null;
+let cachedMegaMenu: Array<{ title: string; to: string; items: Array<{ label: string; to: string }> }> | null = null;
+let cachedRoomMenu: Array<{ title: string; to: string; items: Array<{ label: string; to: string }> }> | null = null;
 
 export const categoryService = {
   /**
    * Lấy toàn bộ danh mục sản phẩm từ backend hoặc fallback thông minh
+   * Có in-flight promise deduplication để các component gọi đồng thời không spam request.
    */
   async getCategories(): Promise<CategoryItem[]> {
     const now = Date.now();
@@ -17,93 +148,55 @@ export const categoryService = {
       return cachedCategories;
     }
 
-    try {
-      // 1. Thử gọi API danh mục công khai
-      const response = await fetch(ENDPOINTS.CATEGORIES.BASE, {
-        headers: { "Content-Type": "application/json" },
-      });
+    if (inFlightFetch) {
+      return inFlightFetch;
+    }
 
-      if (response.ok) {
-        const data: BackendCategoryResponse[] = await response.json();
+    inFlightFetch = (async () => {
+      try {
+        // 1. Thử gọi API danh mục công khai qua apiClient (có auto-retry khi gateway lỗi)
+        const data = await apiClient.get<BackendCategoryResponse[]>(ENDPOINTS.CATEGORIES.BASE, {
+          skipAuth: true,
+          retries: 2,
+        });
+
         if (Array.isArray(data) && data.length > 0) {
           const items = this.transformApiCategories(data);
           cachedCategories = items;
-          lastFetchTime = now;
+          lastFetchTime = Date.now();
+          cachedMegaMenu = null;
+          cachedRoomMenu = null;
           return items;
         }
+      } catch {
+        // Bỏ qua lỗi
       }
-    } catch {
-      // Bỏ qua lỗi
-    }
 
-    try {
-      // 2. Thử gọi API admin danh mục
-      const adminRes = await fetch(ENDPOINTS.ADMIN.CATALOG.CATEGORIES, {
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      });
+      try {
+        // 2. Thử gọi API admin danh mục qua apiClient
+        const data = await apiClient.get<BackendCategoryResponse[]>(ENDPOINTS.ADMIN.CATALOG.CATEGORIES, {
+          retries: 1,
+        });
 
-      if (adminRes.ok) {
-        const data: BackendCategoryResponse[] = await adminRes.json();
         if (Array.isArray(data) && data.length > 0) {
           const items = this.transformApiCategories(data);
           cachedCategories = items;
-          lastFetchTime = now;
+          lastFetchTime = Date.now();
+          cachedMegaMenu = null;
+          cachedRoomMenu = null;
           return items;
         }
+      } catch {
+        // Bỏ qua lỗi
       }
-    } catch {
-      // Bỏ qua lỗi
-    }
 
-    // 3. Khám phá danh mục động từ các sản phẩm đang có trong database backend
-    try {
-      const products = await productService.getProducts({ size: 100 });
-      if (products.length > 0) {
-        const categoryMap = new Map<string, { count: number; sampleImage: string }>();
+      // 3. Fallback an toàn khi chưa nạp được dữ liệu
+      return cachedCategories || [];
+    })().finally(() => {
+      inFlightFetch = null;
+    });
 
-        for (const p of products) {
-          if (p.category) {
-            const existing = categoryMap.get(p.category) || { count: 0, sampleImage: p.image };
-            existing.count += 1;
-            categoryMap.set(p.category, existing);
-          }
-        }
-
-        if (categoryMap.size > 0) {
-          const dynamicCategories: CategoryItem[] = Array.from(categoryMap.entries()).map(
-            ([name, info], index) => {
-              const slug = name
-                .toLowerCase()
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .replace(/đ/g, "d")
-                .replace(/[^a-z0-9]+/g, "-")
-                .replace(/^-+|-+$/g, "");
-
-              return {
-                id: index + 1,
-                name,
-                slug,
-                description: `Các sản phẩm thuộc danh mục ${name}`,
-                imageUrl: info.sampleImage || DEFAULT_PLACEHOLDER_IMAGE,
-                productCount: info.count,
-                to: `/danh-muc/${slug}`,
-              };
-            }
-          );
-
-          cachedCategories = dynamicCategories;
-          lastFetchTime = now;
-          return dynamicCategories;
-        }
-      }
-    } catch {
-      // Bỏ qua lỗi
-    }
-
-    // 4. Fallback rỗng an toàn khi chưa nạp được dữ liệu
-    return [];
+    return inFlightFetch;
   },
 
   /**
@@ -172,6 +265,9 @@ export const categoryService = {
    * TUYỆT ĐỐI LOẠI BỎ: Không gian phòng (ROOM) và Bộ sưu tập (COLLECTION) và Trang tĩnh (PAGE / STATIC).
    */
   async getMegaMenuGroups(): Promise<Array<{ title: string; to: string; items: Array<{ label: string; to: string }> }>> {
+    if (cachedMegaMenu) {
+      return cachedMegaMenu;
+    }
     const cats = await this.getCategories();
 
     const isRoomCat = (name: string, slug: string) => {
@@ -190,23 +286,6 @@ export const categoryService = {
       );
     };
 
-    const isCollectionCat = (cat: { name?: string; slug?: string; isCollection?: boolean; categoryGroup?: string }) => {
-      if (cat.categoryGroup === "COLLECTION" || cat.isCollection) return true;
-      const n = (cat.name || "").toLowerCase().trim();
-      const s = (cat.slug || "").toLowerCase().trim();
-      return (
-        n.includes("bộ sưu tập") ||
-        n.includes("bo suu tap") ||
-        s.includes("bo-suu-tap") ||
-        s.includes("victoria") ||
-        s.includes("duong-dai") ||
-        s.includes("osaka") ||
-        s.includes("coastal") ||
-        s.includes("hung-king") ||
-        s.includes("may")
-      );
-    };
-
     const isTestCat = (name: string, slug: string) => {
       const n = (name || "").toLowerCase().trim();
       const s = (slug || "").toLowerCase().trim();
@@ -220,14 +299,14 @@ export const categoryService = {
         if (group === "ROOM" || group === "COLLECTION" || group === "PAGE" || group === "STATIC") {
           return false;
         }
-        return !isRoomCat(c.name, c.slug) && !isCollectionCat(c) && !isTestCat(c.name, c.slug);
+        return !isRoomCat(c.name, c.slug) && !isCollectionCategory(c) && !isTestCat(c.name, c.slug);
       });
 
       // 2. Lấy các danh mục cha cấp cao nhất (Top-level: Sofa, Bàn, Ghế, Tủ & Kệ...)
       const parentCats = productCats.filter((c) => !c.parentId);
 
       if (parentCats.length > 0) {
-        return parentCats.map((parent) => {
+        const groups = parentCats.map((parent) => {
           let subItems = parent.items || [];
           if (subItems.length === 0) {
             subItems = productCats
@@ -244,6 +323,8 @@ export const categoryService = {
             items: subItems,
           };
         });
+        cachedMegaMenu = groups;
+        return groups;
       }
     }
 
@@ -314,6 +395,9 @@ export const categoryService = {
    * Lấy động từ Server DB (các danh mục có categoryGroup === 'ROOM') hoặc fallback
    */
   async getRoomMenuGroups(): Promise<Array<{ title: string; to: string; items: Array<{ label: string; to: string }> }>> {
+    if (cachedRoomMenu) {
+      return cachedRoomMenu;
+    }
     try {
       const cats = await this.getCategories();
       const roomCats = cats.filter((c) => {
@@ -328,7 +412,7 @@ export const categoryService = {
 
       const parentRooms = roomCats.filter((c) => !c.parentId);
       if (parentRooms.length > 0) {
-        return parentRooms.map((room) => {
+        const rooms = parentRooms.map((room) => {
           let subItems = room.items || [];
           if (subItems.length === 0) {
             subItems = roomCats
@@ -373,12 +457,14 @@ export const categoryService = {
             items: subItems,
           };
         });
+        cachedRoomMenu = rooms;
+        return rooms;
       }
     } catch {
       // Bỏ qua lỗi và dùng fallback
     }
 
-    return [
+    const fallbackRooms = [
       {
         title: "Phòng khách",
         to: "/phong/phong-khach",
@@ -415,5 +501,7 @@ export const categoryService = {
         ],
       },
     ];
+    cachedRoomMenu = fallbackRooms;
+    return fallbackRooms;
   },
 };

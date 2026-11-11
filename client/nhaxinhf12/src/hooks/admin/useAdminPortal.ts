@@ -185,26 +185,14 @@ export function useAdminPortal(session?: AuthSession | null) {
     role: currentRole.name,
   };
 
+  // 1. Tải dữ liệu khung cơ sở (Core Shell) cho Admin Portal (Chỉ gọi 1 lần khi mount)
   useEffect(() => {
-    async function loadData() {
+    async function loadCoreData() {
       try {
-        const [
-          loadedRoles, loadedCats, loadedProds, loadedOrders,
-          loadedDiscs, loadedArts, loadedNotifs, loadedStaff,
-          loadedTickets, loadedSettings, loadedLogs, loadedPerms
-        ] = await Promise.all([
+        const [loadedRoles, loadedPerms, loadedNotifs] = await Promise.all([
           adminApi.getRoles(),
-          adminApi.getCategories(true),
-          adminApi.getProducts(true),
-          adminApi.getOrders(),
-          adminApi.getDiscounts(),
-          adminApi.getArticles(),
-          adminApi.getNotifications(),
-          adminApi.getStaff(),
-          adminApi.getTickets(),
-          adminApi.getSettings(),
-          adminApi.getAuditLogs(),
           adminApi.getPermissions(),
+          adminApi.getNotifications(),
         ]);
 
         if (loadedRoles && loadedRoles.length > 0) {
@@ -217,42 +205,128 @@ export function useAdminPortal(session?: AuthSession | null) {
           setRoles(loadedRoles);
           setCurrentRole(matchedRole);
         }
-        setCategories(loadedCats || []);
-        setProducts(loadedProds || []);
-        setOrders(loadedOrders || []);
-        if (loadedOrders && loadedOrders.length > 0) {
-          loadedOrders.forEach((o) => {
-            knownOrderIdsRef.current.add(String(o.id));
-            knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
-          });
-        }
-        isInitialLoadRef.current = false;
-
-        setDiscounts(loadedDiscs || []);
-        setArticles(loadedArts || []);
-        setNotifications(loadedNotifs || []);
-        setStaffList(loadedStaff || []);
-        setTickets(loadedTickets || []);
-        setSettings(loadedSettings || INITIAL_SETTINGS);
-        setAuditLogs(loadedLogs || []);
         setPermissions(loadedPerms || []);
+        setNotifications(loadedNotifs || []);
       } catch (err) {
-        console.error("Error loading admin data from API:", err);
+        console.error("Error loading core admin data from API:", err);
       }
     }
-    loadData();
-  }, []);
+    loadCoreData();
+  }, [normalizedSessionRoles]);
 
-  // ── Polling ngầm phát hiện đơn hàng mới & phát thông báo hệ thống ──
+  // 2. Tải dữ liệu theo nhu cầu (Lazy / On-Demand Loading) tối ưu hóa theo tab hiện hành
+  useEffect(() => {
+    async function loadTabData() {
+      try {
+        switch (activeTab) {
+          case "dashboard": {
+            const [loadedOrders, loadedProds, loadedCats, loadedLogs] = await Promise.all([
+              adminApi.getOrders(),
+              adminApi.getProducts(true),
+              adminApi.getCategories(true),
+              adminApi.getAuditLogs(),
+            ]);
+            setOrders(loadedOrders || []);
+            if (loadedOrders && loadedOrders.length > 0) {
+              loadedOrders.forEach((o) => {
+                knownOrderIdsRef.current.add(String(o.id));
+                knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
+              });
+            }
+            isInitialLoadRef.current = false;
+            setProducts(loadedProds || []);
+            setCategories(loadedCats || []);
+            setAuditLogs(loadedLogs || []);
+            break;
+          }
+          case "orders": {
+            const [loadedOrders, loadedProds] = await Promise.all([
+              adminApi.getOrders(),
+              adminApi.getProducts(true),
+            ]);
+            setOrders(loadedOrders || []);
+            if (loadedOrders && loadedOrders.length > 0) {
+              loadedOrders.forEach((o) => {
+                knownOrderIdsRef.current.add(String(o.id));
+                knownOrderPaymentMapRef.current.set(String(o.id), o.paymentStatus || "unpaid");
+              });
+            }
+            isInitialLoadRef.current = false;
+            setProducts(loadedProds || []);
+            break;
+          }
+          case "products":
+          case "categories":
+          case "collections": {
+            const [loadedProds, loadedCats] = await Promise.all([
+              adminApi.getProducts(true),
+              adminApi.getCategories(true),
+            ]);
+            setProducts(loadedProds || []);
+            setCategories(loadedCats || []);
+            break;
+          }
+          case "roles": {
+            const [loadedStaff, loadedRoles, loadedPerms] = await Promise.all([
+              adminApi.getStaff(),
+              adminApi.getRoles(),
+              adminApi.getPermissions(),
+            ]);
+            setStaffList(loadedStaff || []);
+            if (loadedRoles && loadedRoles.length > 0) setRoles(loadedRoles);
+            setPermissions(loadedPerms || []);
+            break;
+          }
+          case "discounts": {
+            const loadedDiscs = await adminApi.getDiscounts();
+            setDiscounts(loadedDiscs || []);
+            break;
+          }
+          case "articles": {
+            const loadedArts = await adminApi.getArticles();
+            setArticles(loadedArts || []);
+            break;
+          }
+          case "crm": {
+            const loadedTickets = await adminApi.getTickets();
+            setTickets(loadedTickets || []);
+            break;
+          }
+          case "logs": {
+            const loadedLogs = await adminApi.getAuditLogs();
+            setAuditLogs(loadedLogs || []);
+            break;
+          }
+          case "settings": {
+            const loadedSettings = await adminApi.getSettings();
+            setSettings(loadedSettings || INITIAL_SETTINGS);
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (err) {
+        console.error(`Error loading data for tab ${activeTab}:`, err);
+      }
+    }
+    loadTabData();
+  }, [activeTab]);
+
+  // ── Polling ngầm phát hiện đơn hàng mới & phát thông báo hệ thống (Throttled & Tab Visibility Aware) ──
   useEffect(() => {
     // Xin quyền Browser Native Notification
     if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
 
-    const interval = setInterval(async () => {
+    const pollBackgroundTasks = async () => {
+      // Tối ưu: Dừng polling khi tab browser đang bị ẩn/thu nhỏ để tiết kiệm băng thông và CPU máy chủ
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+
       try {
-        const latestOrders = await adminApi.getOrders();
+        const latestOrders = await adminApi.getOrders(true);
         if (!latestOrders || latestOrders.length === 0) return;
 
         if (isInitialLoadRef.current || knownOrderIdsRef.current.size === 0) {
@@ -378,9 +452,28 @@ export function useAdminPortal(session?: AuthSession | null) {
       } catch (err) {
         console.debug("Lỗi kiểm tra đơn hàng mới ngầm:", err);
       }
-    }, 10000); // 10s polling
+    };
 
-    return () => clearInterval(interval);
+    // Chu kỳ polling 30 giây (giảm 67% tần suất gọi so với 10s trước đây)
+    const interval = setInterval(pollBackgroundTasks, 30000);
+
+    // Kích hoạt cập nhật ngay khi người dùng chuyển lại tab Nhà Xinh
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        void pollBackgroundTasks();
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [handleSelectTab]);
 
   const tabTitles: Record<AdminViewTab, string> = {
@@ -401,7 +494,7 @@ export function useAdminPortal(session?: AuthSession | null) {
   };
 
   const handleRefreshLogs = async () => {
-    const loaded = await adminApi.getAuditLogs();
+    const loaded = await adminApi.getAuditLogs(true);
     setAuditLogs(loaded);
   };
 
@@ -594,7 +687,7 @@ export function useAdminPortal(session?: AuthSession | null) {
   };
 
   const handleRefreshOrders = async () => {
-    setOrders(await adminApi.getOrders());
+    setOrders(await adminApi.getOrders(true));
   };
 
   const handleCreateOrder = async (orderData: Omit<AdminOrder, "id" | "statusHistory">) => {

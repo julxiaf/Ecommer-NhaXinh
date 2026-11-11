@@ -41,7 +41,7 @@ public class RbacService {
     public static final String ADMIN_ROLE = "ADMIN";
     private static final Pattern ROLE_CODE_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]{1,59}$");
     private static final Pattern PERMISSION_CODE_PATTERN =
-            Pattern.compile("^[a-z][a-z0-9_-]*:[a-z][a-z0-9_-]*$");
+            Pattern.compile("^[a-z][a-z0-9_-]*[:.][a-z0-9_.-]+$");
 
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
@@ -227,9 +227,16 @@ public class RbacService {
             throw ApiException.withField(ApiErrorCode.RBAC_PERMISSION_CODE_EXISTS, "code", "Mã quyền hạn đã tồn tại");
         }
 
-        String resolvedModule = (module == null || module.isBlank())
-                ? normalizedCode.substring(0, normalizedCode.indexOf(':'))
-                : module.trim().toLowerCase();
+        String resolvedModule;
+        if (module != null && !module.isBlank()) {
+            resolvedModule = module.trim().toLowerCase();
+        } else if (normalizedCode.contains(":")) {
+            resolvedModule = normalizedCode.substring(0, normalizedCode.indexOf(':'));
+        } else if (normalizedCode.contains(".")) {
+            resolvedModule = normalizedCode.substring(0, normalizedCode.indexOf('.'));
+        } else {
+            resolvedModule = normalizedCode;
+        }
 
         Permission saved = permissionRepository.save(
                 new Permission(normalizedCode, name.trim(), resolvedModule, trimToNull(description)));

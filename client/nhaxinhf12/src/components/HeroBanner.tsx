@@ -14,6 +14,10 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   videoUrl,
   actions,
   className = '',
+  textColor,
+  titleColor,
+  subtitleColor,
+  descriptionColor,
 }) => {
   const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -74,10 +78,29 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       )}
 
       {/* Nội dung thông điệp chính */}
-      <div className="hero-content">
-        {subtitle && <span className="hero-subtitle">{subtitle}</span>}
-        <h1 className="hero-title">{title}</h1>
-        {description && <p className="hero-description">{description}</p>}
+      <div className="hero-content" style={textColor ? { color: textColor } : undefined}>
+        {subtitle && (
+          <span
+            className="hero-subtitle"
+            style={subtitleColor ? { color: subtitleColor } : textColor ? { color: textColor } : undefined}
+          >
+            {subtitle}
+          </span>
+        )}
+        <h1
+          className="hero-title"
+          style={titleColor ? { color: titleColor } : textColor ? { color: textColor } : undefined}
+        >
+          {title}
+        </h1>
+        {description && (
+          <p
+            className="hero-description"
+            style={descriptionColor ? { color: descriptionColor } : textColor ? { color: textColor } : undefined}
+          >
+            {description}
+          </p>
+        )}
 
         {actions && actions.length > 0 && (
           <div className="hero-actions">

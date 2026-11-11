@@ -168,7 +168,13 @@ public class ApiExceptionHandler {
         if (code.getHttpStatus().is5xxServerError()) {
             log.error("Business error {} on {} {}: {}", code, req.getMethod(), req.getRequestURI(), ex.getMessage(), ex);
         } else {
+            // Lỗi nghiệp vụ: một dòng WARN, không in stack trace
             log.warn("Business error {} on {} {}: {}", code, req.getMethod(), req.getRequestURI(), ex.getMessage());
+        }
+        String customMsg = ex.getCustomMessage();
+        if (customMsg != null && !customMsg.isBlank()) {
+            ApiError body = new ApiError(code.name(), customMsg, java.time.Instant.now(), req.getRequestURI(), ex.getDetails());
+            return ResponseEntity.status(code.getHttpStatus()).body(body);
         }
         return build(code, req, ex.getDetails());
     }
@@ -195,6 +201,35 @@ public class ApiExceptionHandler {
         // Log message nội bộ để debug, nhưng KHÔNG trả ra client
         log.warn("Illegal state on {}: {}", req.getRequestURI(), ex.getMessage());
         return build(ApiErrorCode.SYSTEM_ERROR, req);
+    }
+
+    /**
+     * Vi phạm ràng buộc DB (unique/foreign key...). Log ERROR kèm tên constraint + requestId;
+     * KHÔNG lộ message SQL ra client — chỉ trả 409 với requestId để khách báo lại.
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex, HttpServletRequest req) {
+
+        log.error("[DB] Vi phạm ràng buộc dữ liệu: constraint={}, requestId={}, path={} {}",
+                extractConstraintName(ex), org.slf4j.MDC.get("requestId"), req.getMethod(), req.getRequestURI(), ex);
+        return build(ApiErrorCode.RESOURCE_CONFLICT, req);
+    }
+
+    /** Lấy tên constraint từ root cause (ví dụ: "carts.uq_carts_session_token"). */
+    private static String extractConstraintName(Throwable ex) {
+        if (ex instanceof org.hibernate.exception.ConstraintViolationException cve && cve.getConstraintName() != null) {
+            return cve.getConstraintName();
+        }
+        Throwable root = org.springframework.core.NestedExceptionUtils.getMostSpecificCause(ex);
+        String msg = root.getMessage();
+        if (msg != null) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("for key '([^']+)'").matcher(msg);
+            if (m.find()) {
+                return m.group(1);
+            }
+        }
+        return "unknown";
     }
 
     // ====================================================================

@@ -24,6 +24,10 @@ export interface HeroBannerProps {
     videoUrl?: string;
     actions: BannerAction[];
     className?: string;
+    textColor?: string;
+    titleColor?: string;
+    subtitleColor?: string;
+    descriptionColor?: string;
 }
 
 export default function HeroBanner({

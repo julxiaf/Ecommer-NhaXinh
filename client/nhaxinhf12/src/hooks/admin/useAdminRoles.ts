@@ -351,8 +351,8 @@ export function useAdminRoles({
       if (staffRoleFilter !== "all" && s.roleCode !== staffRoleFilter) return false;
       if (staffStatusFilter !== "all" && s.status !== staffStatusFilter) return false;
       if (q) {
-        const matchName = s.name.toLowerCase().includes(q);
-        const matchEmail = s.email.toLowerCase().includes(q);
+        const matchName = (s.name || "").toLowerCase().includes(q);
+        const matchEmail = (s.email || "").toLowerCase().includes(q);
         const matchUsername = (s.username || "").toLowerCase().includes(q);
         const matchPhone = (s.phone || "").toLowerCase().includes(q);
         if (!matchName && !matchEmail && !matchUsername && !matchPhone) return false;

@@ -1,4 +1,5 @@
 import { ENDPOINTS } from "./apiEndpoints";
+import { apiClient } from "./apiClient";
 
 export interface ChatMessage {
   id?: number;
@@ -55,21 +56,16 @@ export const chatbotService = {
     const mode = requestedMode || this.getStoredMode();
 
     try {
-      const res = await fetch(ENDPOINTS.CHATBOT.MESSAGE, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const data = await apiClient.post<ChatResponse>(
+        ENDPOINTS.CHATBOT.MESSAGE,
+        {
           conversationId: convId,
           messageText,
           mode,
-        }),
-      });
+        },
+        { retries: 1 }
+      );
 
-      if (!res.ok) {
-        throw new Error(`Gửi tin nhắn thất bại (${res.status})`);
-      }
-
-      const data: ChatResponse = await res.json();
       if (data.conversationId) {
         this.setStoredConversationId(data.conversationId);
       }
@@ -103,13 +99,9 @@ export const chatbotService = {
     const convId = this.getStoredConversationId();
     if (convId) {
       try {
-        await fetch(ENDPOINTS.CHATBOT.SWITCH_MODE, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            conversationId: convId,
-            mode,
-          }),
+        await apiClient.post(ENDPOINTS.CHATBOT.SWITCH_MODE, {
+          conversationId: convId,
+          mode,
         });
       } catch (e) {
         console.warn("Không thể đổi mode trên server:", e);
@@ -133,9 +125,8 @@ export const chatbotService = {
 
   async getAdminConversations(): Promise<AdminConversation[]> {
     try {
-      const res = await fetch(ENDPOINTS.CHATBOT.ADMIN_CONVERSATIONS);
-      if (!res.ok) return [];
-      return await res.json();
+      const data = await apiClient.get<AdminConversation[]>(ENDPOINTS.CHATBOT.ADMIN_CONVERSATIONS);
+      return Array.isArray(data) ? data : [];
     } catch (e) {
       console.warn("Lỗi tải danh sách hội thoại admin:", e);
       return [];
@@ -144,13 +135,9 @@ export const chatbotService = {
 
   async sendAdminReply(conversationId: number, messageText: string): Promise<ChatMessage | null> {
     try {
-      const res = await fetch(ENDPOINTS.CHATBOT.ADMIN_REPLY(conversationId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageText }),
+      return await apiClient.post<ChatMessage>(ENDPOINTS.CHATBOT.ADMIN_REPLY(conversationId), {
+        messageText,
       });
-      if (!res.ok) return null;
-      return await res.json();
     } catch (e) {
       console.warn("Lỗi gửi phản hồi CSKH:", e);
       return null;
@@ -159,13 +146,9 @@ export const chatbotService = {
 
   async overrideMessage(messageId: number, messageText: string): Promise<ChatMessage | null> {
     try {
-      const res = await fetch(ENDPOINTS.CHATBOT.ADMIN_OVERRIDE(messageId), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageText }),
+      return await apiClient.put<ChatMessage>(ENDPOINTS.CHATBOT.ADMIN_OVERRIDE(messageId), {
+        messageText,
       });
-      if (!res.ok) return null;
-      return await res.json();
     } catch (e) {
       console.warn("Lỗi khi ghi đè tin nhắn của bot:", e);
       return null;
@@ -174,10 +157,8 @@ export const chatbotService = {
 
   async closeConversation(conversationId: number): Promise<boolean> {
     try {
-      const res = await fetch(ENDPOINTS.CHATBOT.ADMIN_CLOSE(conversationId), {
-        method: "POST",
-      });
-      return res.ok;
+      await apiClient.post(ENDPOINTS.CHATBOT.ADMIN_CLOSE(conversationId), {});
+      return true;
     } catch {
       return false;
     }

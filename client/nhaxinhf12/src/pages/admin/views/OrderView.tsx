@@ -10,6 +10,10 @@ import type { AdminOrder, AdminOrderItem, AdminProduct, RoleDefinition } from ".
 import PermissionGate, { hasPermission } from "../../../components/admin/PermissionGate";
 import { AdminPagination } from "../../../components/admin/AdminPagination";
 import { useAdminOrders } from "../../../hooks/admin/useAdminOrders";
+import {
+  getAllowedNextStatuses,
+  isOrderTerminated,
+} from "../../../services/admin/orderStateMachine";
 import { vnd } from "../../../util/Constain";
 import { exportOrdersToExcel } from "../../../util/excelExport";
 import { resolveProductImage } from "../../../services/productService";
@@ -409,43 +413,43 @@ export default function OrderView({
     switch (st?.toLowerCase()) {
       case "pending":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
             Chờ xác nhận
           </span>
         );
       case "confirmed":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 whitespace-nowrap">
             Đã xác nhận
           </span>
         );
       case "processing":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
             Đang xử lý
           </span>
         );
       case "shipping":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
             Đang giao hàng
           </span>
         );
       case "completed":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
             Hoàn tất
           </span>
         );
       case "cancelled":
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
             Đã hủy
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 whitespace-nowrap">
             {st}
           </span>
         );
@@ -456,19 +460,19 @@ export default function OrderView({
     switch (pst?.toLowerCase()) {
       case "paid":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 whitespace-nowrap">
             ĐÃ THANH TOÁN
           </span>
         );
       case "partially_paid":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 whitespace-nowrap">
             ĐÃ CỌC MỘT PHẦN
           </span>
         );
       case "refunded":
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 whitespace-nowrap">
             ĐÃ HOÀN TIỀN
           </span>
         );
@@ -476,7 +480,7 @@ export default function OrderView({
       case "unpaid":
       default:
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 whitespace-nowrap">
             CHỜ THANH TOÁN
           </span>
         );
@@ -649,14 +653,14 @@ export default function OrderView({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px] font-semibold">
-                <th className="py-3 px-4 text-center">MÃ ĐƠN</th>
-                <th className="py-3 px-4">KHÁCH HÀNG & LIÊN HỆ</th>
-                <th className="py-3 px-4">NGƯỜI TẠO</th>
-                <th className="py-3 px-4">TỔNG TIỀN</th>
-                <th className="py-3 px-4">THANH TOÁN</th>
-                <th className="py-3 px-4">TRẠNG THÁI</th>
-                <th className="py-3 px-4">THỜI GIAN</th>
-                <th className="py-3 px-4 text-center">THAO TÁC</th>
+                <th className="py-3 px-4 text-center whitespace-nowrap w-44">MÃ ĐƠN</th>
+                <th className="py-3 px-4 whitespace-nowrap min-w-[150px]">KHÁCH HÀNG</th>
+                <th className="py-3 px-4 whitespace-nowrap">NGƯỜI TẠO</th>
+                <th className="py-3 px-4 text-right whitespace-nowrap">TỔNG TIỀN</th>
+                <th className="py-3 px-4 whitespace-nowrap">THANH TOÁN</th>
+                <th className="py-3 px-4 text-center whitespace-nowrap">TRẠNG THÁI</th>
+                <th className="py-3 px-4 text-center whitespace-nowrap">THỜI GIAN</th>
+                <th className="py-3 px-4 text-center whitespace-nowrap min-w-[160px]">THAO TÁC</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -671,58 +675,72 @@ export default function OrderView({
                   <tr
                     key={ord.id}
                     className={`transition-colors ${
-                      ord.isDeleted ? "bg-rose-50/40 hover:bg-rose-50/70" : "hover:bg-slate-50"
+                      ord.isDeleted ? "bg-rose-50/40 hover:bg-rose-50/70" : "hover:bg-slate-50/80"
                     }`}
                   >
-                    <td className="py-3 px-4">
-                      <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs border border-blue-200">
-                        {ord.orderCode}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <span
+                        className="inline-block font-mono font-bold text-blue-600 bg-blue-50/90 px-2.5 py-1 rounded-lg text-xs border border-blue-200 select-all tracking-tight"
+                        title={ord.orderCode}
+                      >
+                        #{ord.orderCode}
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div>
-                        <p className="font-semibold text-slate-900 text-xs">{ord.customerName}</p>
-                        <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                          <Phone size={10} /> {ord.phone}
+                    <td className="py-3.5 px-4">
+                      <div className="min-w-[130px]">
+                        <p className="font-semibold text-slate-900 text-xs truncate max-w-[170px]" title={ord.customerName}>
+                          {ord.customerName}
+                        </p>
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5 whitespace-nowrap">
+                          <Phone size={11} className="text-slate-400 shrink-0" />
+                          <span>{ord.phone || "—"}</span>
                         </p>
                       </div>
                     </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                        <User size={11} className="text-slate-500" />
-                        {ord.createdBy || "Khách trực tuyến"}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200/80">
+                        <User size={11} className="text-slate-500 shrink-0" />
+                        <span className="max-w-[120px] truncate" title={ord.createdBy || "Khách trực tuyến"}>
+                          {ord.createdBy || "Khách trực tuyến"}
+                        </span>
                       </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-slate-900 text-xs">{vnd(ord.total)}</span>
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <span className="font-bold text-slate-900 text-xs tabular-nums tracking-tight">
+                        {vnd(ord.total)}
+                      </span>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="space-y-1">
-                        <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 block w-fit">
-                          {ord.paymentMethod}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200/60 inline-flex items-center gap-1">
+                          <CreditCard size={10} className="text-slate-500 shrink-0" />
+                          <span>{ord.paymentMethod || "COD"}</span>
                         </span>
                         {paymentBadge(ord.paymentStatus)}
                       </div>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
                       {ord.isDeleted ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-rose-100 text-rose-700 border border-rose-200">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200 whitespace-nowrap">
                           Đã xóa mềm
                         </span>
                       ) : (
                         statusBadge(ord.status)
                       )}
                     </td>
-                    <td className="py-3 px-4 text-xs text-slate-500 whitespace-nowrap">{ord.createdAt}</td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="py-3.5 px-4 text-center text-xs text-slate-500 whitespace-nowrap tabular-nums">
+                      {ord.createdAt}
+                    </td>
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="inline-flex items-center justify-center gap-1.5 flex-nowrap">
                         <button
                           type="button"
                           onClick={() => handleOpenDetail(ord)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 text-xs font-semibold transition-all shadow-xs"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/50 text-blue-600 hover:bg-blue-100/60 text-xs font-semibold whitespace-nowrap shrink-0 transition-colors shadow-2xs cursor-pointer"
                           title="Xem chi tiết đơn hàng"
                         >
-                          <Eye size={11} /> Chi tiết
+                          <Eye size={13} className="shrink-0" />
+                          <span className="whitespace-nowrap">Chi tiết</span>
                         </button>
 
                         {ord.isDeleted ? (
@@ -730,19 +748,18 @@ export default function OrderView({
                           <button
                             type="button"
                             onClick={() => handleRestoreOrder(ord.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold transition-all shadow-xs"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold whitespace-nowrap shrink-0 transition-colors shadow-2xs cursor-pointer"
                             title="Khôi phục đơn hàng này từ thùng rác"
                           >
-                            <RotateCw size={12} /> Khôi phục
+                            <RotateCw size={13} className="shrink-0" />
+                            <span className="whitespace-nowrap">Khôi phục</span>
                           </button>
                         ) : ord.status === "completed" ? (
-                          /* Đơn hàng đã giao thành công: chỉ xem chi tiết, không cho phép hủy hoặc xóa */
-                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
-                            Đã giao xong
-                          </span>
+                          /* Đơn hàng đã giao thành công: chỉ cần nút Chi tiết, không hiển thị nút thừa làm chật bảng */
+                          null
                         ) : (
                           <>
-                            {/* Chỉ cho phép hủy khi đơn hàng CHƯA ĐƯỢC GIAO ĐI (pending, confirmed, processing) */}
+                            {/* Nút hủy đơn hàng: màu Đỏ/Rose nổi bật và trực quan, chỉ cho phép khi chưa giao (pending, confirmed, processing) */}
                             {ord.status !== "cancelled" && ord.status !== "shipping" && (
                               <button
                                 type="button"
@@ -750,10 +767,10 @@ export default function OrderView({
                                   setCancelModalOrder(ord);
                                   setCancelReason("");
                                 }}
-                                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 text-xs font-semibold transition-all shadow-xs"
-                                title="Hủy đơn hàng (khi chưa giao đi)"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 hover:text-rose-700 text-xs font-semibold shrink-0 transition-colors shadow-2xs cursor-pointer"
+                                title="Hủy đơn hàng này (khi chưa giao đi)"
                               >
-                                <XCircle size={13} />
+                                <XCircle size={14} className="shrink-0" />
                               </button>
                             )}
 
@@ -765,10 +782,10 @@ export default function OrderView({
                                   handleDeleteOrder(ord.id);
                                 }
                               }}
-                              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-all shadow-xs"
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 bg-slate-50 text-slate-400 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-600 text-xs font-semibold shrink-0 transition-colors shadow-2xs cursor-pointer"
                               title="Xóa mềm vào thùng rác"
                             >
-                              <Trash2 size={13} />
+                              <Trash2 size={14} className="shrink-0" />
                             </button>
                           </>
                         )}
@@ -1042,64 +1059,93 @@ export default function OrderView({
                 </div>
 
                 <PermissionGate permission="payments.confirm" currentRole={currentRole}>
-                  {selectedOrder.status === "completed" ? (
-                    <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                      <span>Đơn hàng đã hoàn tất giao hàng thành công. Dữ liệu thanh toán được lưu trữ cố định.</span>
-                      <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        Đã chốt sổ
-                      </span>
+                  {/*
+                    * CODE REVIEW: Xử lý cập nhật thanh toán cho đơn hàng đã hoàn tất (COMPLETED):
+                    * 1. Nếu đơn đã COMPLETED và ĐÃ THANH TOÁN (PAID): Khóa chốt sổ, nhưng cho phép bấm nút hoàn tiền đổi trả nếu có phát sinh.
+                    * 2. Nếu đơn đã COMPLETED nhưng CHƯA THANH TOÁN (COD chờ nộp tiền): Cho phép kế toán cập nhật sang PAID.
+                    * 3. Nếu đơn CANCELLED mà trước đó đã thanh toán: Cho phép chuyển sang REFUNDED (Hoàn tiền).
+                    */}
+                  {selectedOrder.status === "completed" && selectedOrder.paymentStatus === "paid" ? (
+                    <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <span>Đơn hàng đã hoàn tất giao hàng & thanh toán đầy đủ.</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                          Đã chốt sổ
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentStatusInput("refunded");
+                            setPaymentNote("Khách hoàn hàng, hoàn tiền theo chính sách đổi trả Nhà Xinh");
+                          }}
+                          className="text-[11px] text-rose-600 hover:text-rose-700 font-medium hover:underline cursor-pointer"
+                          title="Chuyển sang chế độ hoàn tiền cho khách đổi trả"
+                        >
+                          Hoàn tiền đổi trả
+                        </button>
+                      </div>
                     </div>
-                  ) : selectedOrder.status === "cancelled" ? (
+                  ) : selectedOrder.status === "cancelled" && selectedOrder.paymentStatus !== "paid" ? (
                     <div className="pt-2.5 border-t border-slate-100 text-xs text-slate-500 italic">
                       Đơn hàng đã bị hủy, không thể thay đổi thông tin thanh toán.
                     </div>
                   ) : (
-                    <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
-                      <div>
-                        <label className="block font-semibold text-slate-600 mb-1 text-[11px]">Phương thức thanh toán</label>
-                        <select
-                          value={paymentMethodInput}
-                          onChange={(e) => setPaymentMethodInput(e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="cod">TIỀN MẶT KHI GIAO (COD)</option>
-                          <option value="vnpay">CỔNG VNPAY (QR / ATM)</option>
-                          <option value="bank_transfer">CHUYỂN KHOẢN (VIETQR)</option>
-                          <option value="momo">VÍ MOMO</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-slate-600 mb-1 text-[11px]">Trạng thái thanh toán</label>
-                        <select
-                          value={paymentStatusInput}
-                          onChange={(e) => setPaymentStatusInput(e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="paid">ĐÃ THANH TOÁN ĐỦ (PAID)</option>
-                          <option value="unpaid">CHỜ THANH TOÁN (UNPAID)</option>
-                          <option value="partially_paid">ĐÃ CỌC MỘT PHẦN (PARTIALLY_PAID)</option>
-                          <option value="refunded">ĐÃ HOÀN TIỀN (REFUNDED)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-slate-600 mb-1 text-[11px]">Ghi chú thanh toán</label>
-                        <input
-                          type="text"
-                          value={paymentNote}
-                          onChange={(e) => setPaymentNote(e.target.value)}
-                          placeholder="VD: Xác nhận qua VNPAY / Chuyển khoản ngân hàng..."
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <button
-                          type="button"
-                          onClick={handleApplyPaymentChange}
-                          disabled={isSubmittingPayment}
-                          className="w-full py-2 px-3 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 shadow-xs transition-all disabled:opacity-60"
-                        >
-                          {isSubmittingPayment ? "Đang lưu..." : "Lưu thanh toán"}
-                        </button>
+                    <div className="pt-3 border-t border-slate-100">
+                      {selectedOrder.status === "completed" && (
+                        <div className="mb-2 p-2 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-800 flex items-center justify-between">
+                          <span>⚠️ Đơn hàng đã giao thành công. Kế toán xác nhận thu tiền mặt COD (PAID) hoặc Hoàn tiền đổi trả (REFUNDED).</span>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-1 text-[11px]">
+                            Phương thức thanh toán {selectedOrder.status === "completed" && <span className="text-slate-400 font-normal">(Khóa)</span>}
+                          </label>
+                          <select
+                            value={paymentMethodInput}
+                            onChange={(e) => setPaymentMethodInput(e.target.value)}
+                            disabled={selectedOrder.status === "completed"}
+                            className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500"
+                          >
+                            <option value="cod">TIỀN MẶT KHI GIAO (COD)</option>
+                            <option value="vnpay">CỔNG VNPAY (QR / ATM)</option>
+                            <option value="bank_transfer">CHUYỂN KHOẢN (VIETQR)</option>
+                            <option value="momo">VÍ MOMO</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-1 text-[11px]">Trạng thái thanh toán</label>
+                          <select
+                            value={paymentStatusInput}
+                            onChange={(e) => setPaymentStatusInput(e.target.value)}
+                            className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="paid">ĐÃ THANH TOÁN ĐỦ (PAID)</option>
+                            {selectedOrder.status !== "completed" && <option value="unpaid">CHỜ THANH TOÁN (UNPAID)</option>}
+                            {selectedOrder.status !== "completed" && <option value="partially_paid">ĐÃ CỌC MỘT PHẦN (PARTIALLY_PAID)</option>}
+                            <option value="refunded">ĐÃ HOÀN TIỀN (REFUNDED)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-1 text-[11px]">Ghi chú thanh toán</label>
+                          <input
+                            type="text"
+                            value={paymentNote}
+                            onChange={(e) => setPaymentNote(e.target.value)}
+                            placeholder="VD: Đối soát COD / Hoàn tiền đổi trả..."
+                            className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={handleApplyPaymentChange}
+                            disabled={isSubmittingPayment}
+                            className="w-full py-2 px-3 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 shadow-xs transition-all disabled:opacity-60 cursor-pointer"
+                          >
+                            {isSubmittingPayment ? "Đang lưu..." : "Lưu thanh toán"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1179,101 +1225,124 @@ export default function OrderView({
 
               {/* Cập nhật tiến độ xử lý đơn hàng */}
               <PermissionGate permission="orders.update" currentRole={currentRole}>
-                {selectedOrder.status === "completed" ? (
-                  <div className="border border-emerald-200 bg-emerald-50/50 p-4 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 text-xs font-bold text-emerald-800">
-                      <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
-                      <span>ĐƠN HÀNG ĐÃ GIAO THÀNH CÔNG (COMPLETED)</span>
-                    </div>
-                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2.5 py-1 rounded-md border border-emerald-200">
-                      Quy trình hoàn tất (Chỉ xem)
-                    </span>
-                  </div>
-                ) : selectedOrder.status === "cancelled" ? (
-                  <div className="border border-rose-200 bg-rose-50/50 p-4 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-2.5 text-xs font-bold text-rose-800">
-                      <XCircle size={18} className="text-rose-600 shrink-0" />
-                      <span>ĐƠN HÀNG ĐÃ BỊ HỦY (CANCELLED)</span>
-                    </div>
-                    <span className="text-[11px] font-semibold text-rose-700 bg-rose-100/80 px-2.5 py-1 rounded-md border border-rose-200">
-                      Đã kết thúc
-                    </span>
-                  </div>
-                ) : (
-                  <div className="border border-blue-200 bg-blue-50/40 p-4 rounded-xl space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                        <Send size={14} className="text-blue-600" /> Cập nhật tiến độ xử lý đơn hàng
-                      </h4>
-                      {/* Chỉ cho phép hủy khi đơn hàng CHƯA ĐƯỢC GIAO ĐI (không thể hủy khi shipping hoặc completed) */}
-                      {selectedOrder.status !== "shipping" && hasPermission(currentRole, "orders.cancel") && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCancelModalOrder(selectedOrder);
-                            setCancelReason("");
-                          }}
-                          className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-700 font-semibold text-xs py-1 px-2.5 rounded border border-rose-200 bg-white hover:bg-rose-50"
-                        >
-                          <XCircle size={13} /> Hủy đơn hàng này
-                        </button>
-                      )}
-                    </div>
+                {(() => {
+                  const isTerminated = isOrderTerminated(selectedOrder.status);
+                  const allowedOptions = getAllowedNextStatuses(selectedOrder.status);
+                  const canCancelOrder =
+                    !isTerminated &&
+                    selectedOrder.status !== "shipping" &&
+                    hasPermission(currentRole, "orders.cancel");
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="sm:col-span-1">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Trạng thái mới</label>
-                        <select
-                          value={newStatus}
-                          onChange={(e) => setNewStatus(e.target.value as AdminOrder["status"])}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white font-medium focus:ring-2 focus:ring-blue-500"
-                        >
-                          {selectedOrder.status === "shipping" ? (
-                            <>
-                              <option value="shipping">Bàn giao ĐVVC / Đang giao (SHIPPING)</option>
-                              <option value="completed">Đã giao thành công (COMPLETED)</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="pending">Chờ xác nhận (PENDING)</option>
-                              <option value="confirmed">Đã xác nhận (CONFIRMED)</option>
-                              <option value="processing">Đang đóng gói / Xử lý (PROCESSING)</option>
-                              <option value="shipping">Bàn giao ĐVVC / Đang giao (SHIPPING)</option>
-                              <option value="completed">Đã giao thành công (COMPLETED)</option>
-                              {hasPermission(currentRole, "orders.cancel") && (
-                                <option value="cancelled">Hủy đơn hàng (CANCELLED)</option>
-                              )}
-                            </>
+                  return (
+                    <div
+                      className={`p-4 rounded-xl space-y-3 border transition-colors ${
+                        selectedOrder.status === "completed"
+                          ? "border-emerald-200 bg-emerald-50/50"
+                          : selectedOrder.status === "cancelled"
+                          ? "border-rose-200 bg-rose-50/50"
+                          : "border-blue-200 bg-blue-50/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                            {selectedOrder.status === "completed" ? (
+                              <CheckCircle2 size={15} className="text-emerald-600" />
+                            ) : selectedOrder.status === "cancelled" ? (
+                              <XCircle size={15} className="text-rose-600" />
+                            ) : (
+                              <Send size={15} className="text-blue-600" />
+                            )}
+                            <span>Cập nhật tiến độ xử lý đơn hàng</span>
+                          </h4>
+                          {isTerminated && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 border border-slate-300">
+                              Đơn hàng đã kết thúc (Không thể thay đổi)
+                            </span>
                           )}
-                        </select>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-semibold text-slate-600 mb-1">Ghi chú xử lý / Mã vận đơn</label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder={
-                              selectedOrder.status === "shipping"
-                                ? "Ví dụ: Đã giao thành công cho khách hàng..."
-                                : "Ví dụ: Đã đóng gói xong, giao shipper Viettel Post..."
-                            }
-                            value={statusNote}
-                            onChange={(e) => setStatusNote(e.target.value)}
-                            className="flex-1 p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500"
-                          />
+                        </div>
+
+                        {/* Nút hủy nhanh: Ẩn/Vô hiệu hóa nếu đơn đã sang giao hàng (shipping) hoặc hoàn tất (completed/cancelled) */}
+                        {canCancelOrder && (
                           <button
                             type="button"
-                            onClick={handleApplyStatusChange}
-                            disabled={isSubmittingStatus}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 shadow-xs transition-all disabled:opacity-60"
+                            onClick={() => {
+                              setCancelModalOrder(selectedOrder);
+                              setCancelReason("");
+                            }}
+                            className="inline-flex items-center gap-1 text-rose-600 hover:text-rose-700 font-semibold text-xs py-1 px-2.5 rounded border border-rose-200 bg-white hover:bg-rose-50 shadow-2xs transition-colors cursor-pointer"
+                            title="Hủy đơn hàng này"
                           >
-                            {isSubmittingStatus ? "Đang lưu..." : "Lưu & Ghi nhận"}
+                            <XCircle size={13} /> Hủy đơn hàng này
                           </button>
+                        )}
+                      </div>
+
+                      {/* Dropdown & Ghi chú */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-1">
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            Trạng thái mới
+                          </label>
+                          <select
+                            value={isTerminated ? "" : newStatus}
+                            onChange={(e) => setNewStatus(e.target.value as AdminOrder["status"])}
+                            disabled={isTerminated || isSubmittingStatus}
+                            className={`w-full p-2 border rounded-lg text-xs font-medium focus:ring-2 focus:ring-blue-500 transition-all ${
+                              isTerminated
+                                ? "bg-slate-100 text-slate-500 border-slate-300 cursor-not-allowed italic"
+                                : "bg-white text-slate-800 border-slate-300"
+                            }`}
+                          >
+                            {isTerminated ? (
+                              <option value="">Đơn hàng đã kết thúc (Không thể thay đổi)</option>
+                            ) : (
+                              allowedOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))
+                            )}
+                          </select>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            Ghi chú xử lý / Mã vận đơn
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              disabled={isTerminated || isSubmittingStatus}
+                              placeholder={
+                                isTerminated
+                                  ? "Đơn hàng đã kết thúc quy trình xử lý."
+                                  : selectedOrder.status === "shipping"
+                                  ? "Ví dụ: Đã giao thành công cho khách hàng..."
+                                  : "Ví dụ: Đã đóng gói xong, giao shipper Viettel Post..."
+                              }
+                              value={statusNote}
+                              onChange={(e) => setStatusNote(e.target.value)}
+                              className="flex-1 p-2 border border-slate-300 rounded-lg text-xs bg-white focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleApplyStatusChange}
+                              disabled={isTerminated || isSubmittingStatus}
+                              className={`px-4 py-2 rounded-lg text-xs font-semibold shadow-xs transition-all ${
+                                isTerminated
+                                  ? "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
+                                  : "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 cursor-pointer"
+                              }`}
+                              title={isTerminated ? "Đơn hàng đã kết thúc (Không thể thay đổi)" : "Lưu & Ghi nhận trạng thái"}
+                            >
+                              {isSubmittingStatus ? "Đang lưu..." : "Lưu & Ghi nhận"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </PermissionGate>
 
               {/* Lịch sử trạng thái xử lý */}

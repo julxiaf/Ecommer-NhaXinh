@@ -97,6 +97,9 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
     description: "",
     backgroundImage: "",
     isActive: true,
+    textColor: "#ffffff",
+    titleColor: "#ffffff",
+    subtitleColor: "",
     actions: [{ label: "Khám phá ngay", url: "/products", isPrimary: true }],
   });
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -315,11 +318,11 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
     showToast("Đã cập nhật trạng thái hiển thị Menu.");
   };
 
-  const handleResetMenuDefault = () => {
-    if (window.confirm("Làm trống danh sách Menu để thiết lập mới từ đầu?")) {
-      const reset = clientCmsService.resetMenuItems();
+  const handleResetMenuDefault = async () => {
+    if (window.confirm("Khôi phục danh sách Menu điều hướng chuẩn của Nhà Xinh (Sản phẩm mới, Sản phẩm, Phòng, Bộ sưu tập, Thương hiệu, Tư vấn thiết kế, Góc cảm hứng)?")) {
+      const reset = await clientCmsService.resetMenuItems();
       setMenuItems(reset);
-      showToast("Đã làm trống danh sách Menu.");
+      showToast("Đã khôi phục Menu điều hướng chuẩn đồng bộ với Header!");
     }
   };
 
@@ -419,6 +422,9 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
       backgroundImage: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80",
       videoUrl: "",
       isActive: true,
+      textColor: "#ffffff",
+      titleColor: "#ffffff",
+      subtitleColor: "",
       actions: [{ label: "Khám phá ngay", url: "/bo-suu-tap", isPrimary: true }],
     });
     setBannerModalOpen(true);
@@ -429,6 +435,9 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
     setUploadSuccessName(null);
     setBannerForm({
       ...banner,
+      textColor: banner.textColor || "#ffffff",
+      titleColor: banner.titleColor || banner.textColor || "#ffffff",
+      subtitleColor: banner.subtitleColor || "",
       mediaType: banner.mediaType || (banner.videoUrl || /\.(mp4|webm|ogg)($|\?)/i.test(banner.backgroundImage || '') ? 'video' : 'image'),
       actions: [...banner.actions],
     });
@@ -463,6 +472,9 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
               backgroundImage: bannerForm.backgroundImage || bannerForm.videoUrl || "",
               mediaType: bannerForm.mediaType || "image",
               videoUrl: bannerForm.videoUrl || "",
+              textColor: bannerForm.textColor || "#ffffff",
+              titleColor: bannerForm.titleColor || bannerForm.textColor || "#ffffff",
+              subtitleColor: bannerForm.subtitleColor || "",
               actions: bannerForm.actions || [{ label: "Xem chi tiết", url: "/products" }],
               isActive: bannerForm.isActive ?? true,
             }
@@ -477,6 +489,9 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
         backgroundImage: bannerForm.backgroundImage || bannerForm.videoUrl || "",
         mediaType: bannerForm.mediaType || "image",
         videoUrl: bannerForm.videoUrl || "",
+        textColor: bannerForm.textColor || "#ffffff",
+        titleColor: bannerForm.titleColor || bannerForm.textColor || "#ffffff",
+        subtitleColor: bannerForm.subtitleColor || "",
         actions: bannerForm.actions || [{ label: "Xem chi tiết", url: "/products" }],
         isActive: bannerForm.isActive ?? true,
         order: banners.length + 1,
@@ -676,9 +691,10 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
                 type="button"
                 onClick={handleResetMenuDefault}
                 className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-stone-700 bg-white hover:bg-stone-100 border border-stone-300 rounded-lg transition-colors cursor-pointer"
+                title="Khôi phục danh sách Menu điều hướng chuẩn của Nhà Xinh"
               >
                 <RotateCcw size={14} />
-                <span>Làm trống danh sách</span>
+                <span>Khôi phục Menu Chuẩn</span>
               </button>
 
               <button
@@ -875,10 +891,16 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent p-4 flex flex-col justify-end text-white">
-                    <span className="text-[10px] font-bold tracking-widest uppercase text-amber-400">
+                    <span
+                      className="text-[10px] font-bold tracking-widest uppercase"
+                      style={{ color: banner.subtitleColor || banner.titleColor || banner.textColor || "#f59e0b" }}
+                    >
                       {banner.subtitle || "BANNER"}
                     </span>
-                    <h4 className="text-lg font-bold leading-tight line-clamp-1">
+                    <h4
+                      className="text-lg font-bold leading-tight line-clamp-1"
+                      style={{ color: banner.titleColor || banner.textColor || "#ffffff" }}
+                    >
                       {banner.title}
                     </h4>
                     <p className="text-xs text-gray-300 line-clamp-1 mt-0.5">
@@ -1422,6 +1444,162 @@ export default function ClientContentView({ currentRole }: ClientContentViewProp
                   placeholder="Mô tả truyền cảm hứng xuất hiện trên slide..."
                   className="w-full px-3 py-2 text-xs border border-gray-300 rounded-lg focus:border-[#B86B49] focus:outline-none"
                 />
+              </div>
+
+              {/* ── Cấu hình màu sắc chữ của Banner (Tùy biến theo background ảnh) ── */}
+              <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <span>🎨 Màu sắc chữ hiển thị (Text & Title Color)</span>
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
+                    {bannerForm.titleColor || bannerForm.textColor || "#FFFFFF"}
+                  </span>
+                </div>
+
+                {/* Danh sách màu mẫu phong cách Nhà Xinh */}
+                <div>
+                  <span className="block text-[11px] font-semibold text-slate-500 mb-1.5">
+                    Gợi ý màu chuẩn thẩm mỹ:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { label: "Trắng tinh khôi (Mặc định)", value: "#ffffff", border: "border-slate-300" },
+                      { label: "Vàng Gold sang trọng", value: "#D4AF37", border: "border-amber-400" },
+                      { label: "Vàng cát ánh kim", value: "#E2BA84", border: "border-amber-300" },
+                      { label: "Nâu đất Nhà Xinh", value: "#B86B49", border: "border-[#B86B49]" },
+                      { label: "Xám than hiện đại", value: "#1E293B", border: "border-slate-700" },
+                    ].map((preset) => {
+                      const isSelected =
+                        (bannerForm.titleColor || bannerForm.textColor || "#ffffff").toLowerCase() ===
+                        preset.value.toLowerCase();
+                      return (
+                        <button
+                          key={preset.value}
+                          type="button"
+                          onClick={() =>
+                            setBannerForm({
+                              ...bannerForm,
+                              textColor: preset.value,
+                              titleColor: preset.value,
+                            })
+                          }
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-white text-slate-900 border-[#B86B49] ring-2 ring-[#B86B49]/30 shadow-xs"
+                              : "bg-white text-slate-600 hover:bg-slate-100 border-slate-200"
+                          }`}
+                        >
+                          <span
+                            className={`w-3.5 h-3.5 rounded-full border ${preset.border} shrink-0`}
+                            style={{ backgroundColor: preset.value }}
+                          />
+                          <span>{preset.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Chọn màu tùy biến (Color Picker & Hex code) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Màu tiêu đề chính (Title)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={bannerForm.titleColor || bannerForm.textColor || "#ffffff"}
+                        onChange={(e) =>
+                          setBannerForm({
+                            ...bannerForm,
+                            titleColor: e.target.value,
+                            textColor: e.target.value,
+                          })
+                        }
+                        className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5 bg-white shrink-0 shadow-2xs"
+                      />
+                      <input
+                        type="text"
+                        value={bannerForm.titleColor || bannerForm.textColor || "#ffffff"}
+                        onChange={(e) =>
+                          setBannerForm({
+                            ...bannerForm,
+                            titleColor: e.target.value,
+                            textColor: e.target.value,
+                          })
+                        }
+                        placeholder="#ffffff"
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:border-[#B86B49] focus:outline-none uppercase font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Màu phụ đề (Subtitle - để trống nếu theo tiêu đề)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={bannerForm.subtitleColor || bannerForm.titleColor || "#ffffff"}
+                        onChange={(e) => setBannerForm({ ...bannerForm, subtitleColor: e.target.value })}
+                        className="w-8 h-8 rounded border border-slate-300 cursor-pointer p-0.5 bg-white shrink-0 shadow-2xs"
+                      />
+                      <input
+                        type="text"
+                        value={bannerForm.subtitleColor || ""}
+                        onChange={(e) => setBannerForm({ ...bannerForm, subtitleColor: e.target.value })}
+                        placeholder="Mặc định theo tiêu đề"
+                        className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:border-[#B86B49] focus:outline-none uppercase"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Xem trước mẫu chữ trên nền ảnh đã chọn */}
+                <div
+                  className="rounded-xl p-3.5 relative overflow-hidden bg-slate-900 border border-slate-700 flex flex-col justify-center min-h-[85px] shadow-inner"
+                  style={
+                    bannerForm.backgroundImage
+                      ? {
+                          backgroundImage: `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url(${bannerForm.backgroundImage})`,
+                          backgroundSize: "cover",
+                          backgroundPosition: "center",
+                        }
+                      : undefined
+                  }
+                >
+                  <span
+                    className="text-[10px] tracking-widest uppercase font-bold"
+                    style={{
+                      color:
+                        bannerForm.subtitleColor ||
+                        bannerForm.titleColor ||
+                        bannerForm.textColor ||
+                        "#ffffff",
+                    }}
+                  >
+                    {bannerForm.subtitle || "XU HƯỚNG 2026"}
+                  </span>
+                  <p
+                    className="text-lg font-bold leading-tight mt-0.5"
+                    style={{
+                      color: bannerForm.titleColor || bannerForm.textColor || "#ffffff",
+                    }}
+                  >
+                    {bannerForm.title || "Bộ Sưu Tập Mới"}
+                  </p>
+                  <p
+                    className="text-xs text-white/90 line-clamp-1 mt-1 font-medium"
+                    style={{
+                      color: bannerForm.textColor || "#ffffff",
+                    }}
+                  >
+                    {bannerForm.description || "Đường nét tinh tế mang cảm hứng phong cách sống đương đại."}
+                  </p>
+                </div>
               </div>
 
               {/* Loại Media: Hình ảnh hoặc Video */}

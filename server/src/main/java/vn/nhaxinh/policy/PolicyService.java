@@ -13,16 +13,15 @@ import vn.nhaxinh.policy.PolicyDtos.*;
 public class PolicyService {
     private static final int PAGE_ID = 1;
 
-    private final PolicyPageRepository legacyRepository;
+    // private final PolicyPageRepository legacyRepository;
     private final PolicyRepository policyRepository;
 
-    public PolicyService(PolicyPageRepository legacyRepository) {
-        this(legacyRepository, null);
-    }
+    // public PolicyService(PolicyPageRepository legacyRepository) {
+    //     this(legacyRepository, null);
+    // }
 
     @org.springframework.beans.factory.annotation.Autowired
-    public PolicyService(PolicyPageRepository legacyRepository, PolicyRepository policyRepository) {
-        this.legacyRepository = legacyRepository;
+    public PolicyService( PolicyRepository policyRepository) {
         this.policyRepository = policyRepository;
     }
 
@@ -167,23 +166,23 @@ public class PolicyService {
     // Legacy PolicyPage Handlers (for backward compatibility)
     // ───────────────────────────────────────────────
 
-    @Transactional(readOnly = true)
-    public PolicyContentResponse getPolicy() {
-        return PolicyContentResponse.from(findLegacyPolicy());
-    }
+    // @Transactional(readOnly = true)
+    // public PolicyContentResponse getPolicy() {
+    //     return PolicyContentResponse.from(findLegacyPolicy());
+    // }
 
-    @Transactional
-    public PolicyContentResponse updatePolicy(PolicyContentRequest request) {
-        PolicyPage page = findLegacyPolicy();
-        page.setTitle(request.title().trim());
-        page.setIntroduction(request.introduction().trim());
-        page.setPurchasePolicy(request.purchasePolicy().trim());
-        page.setReturnPolicy(request.returnPolicy().trim());
-        return PolicyContentResponse.from(legacyRepository.save(page));
-    }
+    // @Transactional
+    // public PolicyContentResponse updatePolicy(PolicyContentRequest request) {
+    //     PolicyPage page = findLegacyPolicy();
+    //     page.setTitle(request.title().trim());
+    //     page.setIntroduction(request.introduction().trim());
+    //     page.setPurchasePolicy(request.purchasePolicy().trim());
+    //     page.setReturnPolicy(request.returnPolicy().trim());
+    //     return PolicyContentResponse.from(legacyRepository.save(page));
+    // }
 
-    private PolicyPage findLegacyPolicy() {
-        return legacyRepository.findById(PAGE_ID)
-                .orElseThrow(() -> new IllegalStateException("Nội dung chính sách chưa được khởi tạo."));
-    }
+    // private PolicyPage findLegacyPolicy() {
+    //     return legacyRepository.findById(PAGE_ID)
+    //             .orElseThrow(() -> new IllegalStateException("Nội dung chính sách chưa được khởi tạo."));
+    // }
 }

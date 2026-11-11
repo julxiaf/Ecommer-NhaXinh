@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -33,7 +34,7 @@ import vn.nhaxinh.user.UserRepository;
  * </pre>
  */
 @RestController
-@RequestMapping(BaseController.API_V1 + "/orders")
+@RequestMapping({BaseController.API_V1 + "/orders", "/api/orders"})
 public class OrderController extends BaseController {
 
     private static final Logger log = LoggerFactory.getLogger(OrderController.class);
@@ -178,5 +179,50 @@ public class OrderController extends BaseController {
                 "orderCode", orderCode,
                 "status", cancelled.getOrderStatus()
         ));
+    }
+
+    /**
+     * Cập nhật trạng thái đơn hàng (PUT /api/orders/{id}/status hoặc /api/v1/orders/{id}/status)
+     */
+    @PutMapping("/{id}/status")
+    public ResponseEntity<OrderDetailResponse> updateStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateOrderStatusRequest request,
+            @AuthenticationPrincipal UserDetails principal,
+            HttpServletRequest httpRequest
+    ) {
+        User adminUser = principal != null
+                ? userRepository.findByUsername(principal.getUsername()).orElse(null)
+                : null;
+
+        Order updated = orderService.updateStatus(id, request.status(), request.note(), adminUser);
+        List<OrderStatusHistory> history = orderService.getStatusHistory(id);
+        String oldStatus = history.stream()
+                .reduce((first, second) -> second)
+                .map(OrderStatusHistory::getOldStatus)
+                .orElse(updated.getOrderStatus());
+
+        String actor = RbacAuditRecorder.actorName(principal);
+        String ip = RbacAuditRecorder.clientIp(httpRequest);
+
+        log.info("[ORDER-STATUS] User='{}' (ip={}) cập nhật trạng thái đơn hàng id={} code='{}': {} -> {} | Ghi chú: '{}'",
+                actor, ip, id, updated.getOrderCode(), oldStatus, updated.getOrderStatus(), request.note());
+
+        final String orderCode = updated.getOrderCode();
+        final String newStatus = updated.getOrderStatus();
+        final var totalAmount = updated.getTotalAmount();
+        CompletableFuture.runAsync(() -> audit.recordResolved(adminUser, actor, ip, "ORDER_UPDATE_STATUS", "ORDER", id, details(
+                "orderCode", orderCode,
+                "oldStatus", oldStatus,
+                "newStatus", newStatus,
+                "note", request.note(),
+                "totalAmount", totalAmount
+        )));
+
+        List<OrderItem> items = orderService.getOrderItems(id);
+        OrderDeposit deposit = orderService.getDeposit(id).orElse(null);
+        String paymentMethod = orderService.getPaymentMethod(id);
+
+        return ResponseEntity.ok(OrderDetailResponse.of(updated, items, history, deposit, paymentMethod));
     }
 }

@@ -2,11 +2,13 @@ package vn.nhaxinh.order;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -16,9 +18,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vn.nhaxinh.catalog.ProductVariant;
+import vn.nhaxinh.inventory.Inventory;
+import vn.nhaxinh.inventory.InventoryMovement;
+import vn.nhaxinh.inventory.InventoryService;
 import vn.nhaxinh.notification.NotificationService;
 import vn.nhaxinh.payment.*;
 
+import vn.nhaxinh.security.ApiError;
 import vn.nhaxinh.security.ApiErrorCode;
 import vn.nhaxinh.security.ApiException;
 import vn.nhaxinh.user.User;
@@ -35,6 +42,7 @@ public class OrderService {
     private final OrderDepositRepository depositRepository;
     private final PaymentRepository paymentRepository;
     private final NotificationService notificationService;
+    private final InventoryService inventoryService;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -49,6 +57,26 @@ public class OrderService {
                 statusHistoryRepository,
                 depositRepository,
                 paymentRepository,
+                null,
+                null
+        );
+    }
+
+    public OrderService(
+            OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
+            OrderStatusHistoryRepository statusHistoryRepository,
+            OrderDepositRepository depositRepository,
+            PaymentRepository paymentRepository,
+            NotificationService notificationService
+    ) {
+        this(
+                orderRepository,
+                orderItemRepository,
+                statusHistoryRepository,
+                depositRepository,
+                paymentRepository,
+                notificationService,
                 null
         );
     }
@@ -60,7 +88,8 @@ public class OrderService {
             OrderStatusHistoryRepository statusHistoryRepository,
             OrderDepositRepository depositRepository,
             PaymentRepository paymentRepository,
-            NotificationService notificationService
+            NotificationService notificationService,
+            InventoryService inventoryService
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -68,6 +97,7 @@ public class OrderService {
         this.depositRepository = depositRepository;
         this.paymentRepository = paymentRepository;
         this.notificationService = notificationService;
+        this.inventoryService = inventoryService;
     }
 
     @Transactional(readOnly = true)
@@ -317,38 +347,99 @@ public class OrderService {
         return saved;
     }
 
+    /**
+     * Sơ đồ chuyển đổi trạng thái hợp lệ (State Machine Rules) theo yêu cầu kỹ thuật:
+     * - PENDING    -> CONFIRMED, CANCELLED
+     * - CONFIRMED  -> PROCESSING, CANCELLED
+     * - PROCESSING -> SHIPPING, CANCELLED
+     * - SHIPPING   -> COMPLETED
+     * - COMPLETED  -> Không cho phép chuyển đổi bất kỳ trạng thái nào nữa (Khóa)
+     * - CANCELLED  -> Không cho phép chuyển đổi bất kỳ trạng thái nào nữa (Khóa)
+     */
+    public static final Map<String, Set<String>> VALID_TRANSITIONS = Map.of(
+            "PENDING", Set.of("CONFIRMED", "CANCELLED"),
+            "CONFIRMED", Set.of("PROCESSING", "CANCELLED"),
+            "PROCESSING", Set.of("SHIPPING", "CANCELLED"),
+            "SHIPPING", Set.of("COMPLETED"),
+            "COMPLETED", Set.of(),
+            "CANCELLED", Set.of()
+    );
+
+    public static String normalizeOrderStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "PENDING";
+        }
+        String s = status.trim().toUpperCase();
+        if ("DELIVERED".equals(s)) return "COMPLETED";
+        if ("REFUNDED".equals(s)) return "CANCELLED";
+        return s;
+    }
+
+    public static boolean isValidTransition(String currentStatus, String targetStatus) {
+        if (currentStatus == null || targetStatus == null) {
+            return false;
+        }
+        String from = normalizeOrderStatus(currentStatus);
+        String to = normalizeOrderStatus(targetStatus);
+        Set<String> allowed = VALID_TRANSITIONS.get(from);
+        return allowed != null && allowed.contains(to);
+    }
+
     public Order updateStatus(Long orderId, String newStatus, String note, User changedBy) {
         Order order = getOrder(orderId);
-        String oldStatus = order.getOrderStatus();
-        String normalizedNewStatus = newStatus.trim().toUpperCase();
+        String rawOldStatus = order.getOrderStatus();
+        String oldStatus = normalizeOrderStatus(rawOldStatus);
+        String normalizedNewStatus = normalizeOrderStatus(newStatus);
 
-        // 1. Nếu đơn hàng đã giao thành công (COMPLETED / DELIVERED), tuyệt đối không cho phép cập nhật nữa
-        if ("COMPLETED".equalsIgnoreCase(oldStatus) || "DELIVERED".equalsIgnoreCase(oldStatus)) {
-            log.warn("[ORDER] Từ chối cập nhật đơn #{}: Đơn hàng đã giao thành công (COMPLETED)", order.getOrderCode());
-            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã giao thành công, chỉ có thể xem chi tiết và không thể cập nhật.");
-        }
-
-        // 2. Nếu đơn hàng đã bị hủy, không thể thay đổi trạng thái
-        if ("CANCELLED".equalsIgnoreCase(oldStatus)) {
-            log.warn("[ORDER] Từ chối cập nhật đơn #{}: Đơn hàng đã bị hủy (CANCELLED)", order.getOrderCode());
-            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã bị hủy, không thể thay đổi trạng thái.");
-        }
-
-        // 3. Nếu đơn hàng đã giao đi (SHIPPING), không thể hủy hoặc chuyển lùi trạng thái
-        if ("SHIPPING".equalsIgnoreCase(oldStatus)) {
-            if ("CANCELLED".equalsIgnoreCase(normalizedNewStatus)) {
-                log.warn("[ORDER] Không thể hủy đơn #{}: Đơn hàng đã được bàn giao vận chuyển (SHIPPING)", order.getOrderCode());
-                throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã được bàn giao vận chuyển và đang giao đi, không thể hủy đơn hàng.");
-            }
-            if ("PENDING".equalsIgnoreCase(normalizedNewStatus) || "CONFIRMED".equalsIgnoreCase(normalizedNewStatus) || "PROCESSING".equalsIgnoreCase(normalizedNewStatus)) {
-                log.warn("[ORDER] Không thể chuyển lùi trạng thái đơn #{}: từ SHIPPING về {}", order.getOrderCode(), normalizedNewStatus);
-                throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã được bàn giao vận chuyển, không thể chuyển lùi trạng thái.");
-            }
+        // Kiểm tra logic chuyển đổi trạng thái theo State Machine
+        if (!isValidTransition(oldStatus, normalizedNewStatus)) {
+            String errorMsg = String.format("Invalid status transition from %s to %s", oldStatus, normalizedNewStatus);
+            log.warn("[ORDER-STATE-MACHINE] Vi phạm quy tắc luồng trạng thái đơn #{}: {} -> {}. Từ chối cập nhật.",
+                    order.getOrderCode(), oldStatus, normalizedNewStatus);
+            throw new ApiException(
+                    ApiErrorCode.VALIDATION_FAILED,
+                    errorMsg,
+                    errorMsg,
+                    List.of(new ApiError.FieldError("status", errorMsg))
+            );
         }
 
         order.setOrderStatus(normalizedNewStatus);
+
+        // =========================================================================
+        // REVIEW [NGHIỆP VỤ TỰ ĐỘNG ĐỒNG BỘ THANH TOÁN CHO ĐƠN COD KHI GIAO XONG]:
+        // -------------------------------------------------------------------------
+        // Với đơn hàng COD (Thanh toán tiền mặt khi nhận hàng), nguyên tắc giao nhận
+        // là khách hàng chỉ nhận được hàng sau khi đã thanh toán đầy đủ tiền mặt cho shipper.
+        // Do đó khi đơn hàng hoàn tất bàn giao (COMPLETED), hệ thống tự động cập nhật
+        // trạng thái thanh toán sang PAID (Đã thanh toán) nếu đơn chưa được đánh dấu PAID.
+        // =========================================================================
+        String autoCheckMethod = getPaymentMethod(orderId);
+        boolean isCodOrder = "CASH_ON_DELIVERY".equalsIgnoreCase(autoCheckMethod) || "COD".equalsIgnoreCase(autoCheckMethod);
+        if ("COMPLETED".equalsIgnoreCase(normalizedNewStatus) && isCodOrder && !"PAID".equalsIgnoreCase(order.getPaymentStatus())) {
+            order.setPaymentStatus("PAID");
+            if (paymentRepository != null) {
+                List<Payment> payments = paymentRepository.findByOrderId(orderId);
+                if (payments != null && !payments.isEmpty()) {
+                    Payment lastPay = payments.get(payments.size() - 1);
+                    lastPay.setPaymentStatus("SUCCESS");
+                    if (lastPay.getPaidAt() == null) {
+                        lastPay.setPaidAt(LocalDateTime.now());
+                    }
+                    paymentRepository.save(lastPay);
+                }
+            }
+            log.info("[ORDER-AUTO-COD-PAID] Đơn hàng COD id={} code='{}' hoàn tất giao hàng -> Tự động chuyển trạng thái thanh toán: UNPAID -> PAID",
+                    orderId, order.getOrderCode());
+        }
+
         order.setUpdatedAt(LocalDateTime.now());
         Order updated = orderRepository.save(order);
+
+        // Tự động giải phóng hàng giữ chỗ / hoàn trả tồn kho khi Admin hủy đơn
+        if ("CANCELLED".equalsIgnoreCase(normalizedNewStatus) && !"CANCELLED".equalsIgnoreCase(oldStatus)) {
+            releaseOrderInventory(updated, "Admin hủy đơn: " + (note != null ? note.trim() : ""));
+        }
 
         OrderStatusHistory history = new OrderStatusHistory(
                 updated,
@@ -394,6 +485,9 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public String getPaymentMethod(Long orderId) {
+        if (paymentRepository == null || orderId == null) {
+            return "CASH_ON_DELIVERY";
+        }
         List<Payment> payments = paymentRepository.findByOrderId(orderId);
         if (payments != null && !payments.isEmpty()) {
             return payments.get(payments.size() - 1).getPaymentMethod();
@@ -406,7 +500,7 @@ public class OrderService {
      */
     @Transactional(readOnly = true)
     public Map<Long, String> getPaymentMethods(List<Long> orderIds) {
-        if (orderIds == null || orderIds.isEmpty()) {
+        if (orderIds == null || orderIds.isEmpty() || paymentRepository == null) {
             return Map.of();
         }
         List<Payment> payments = paymentRepository.findByOrderIdIn(orderIds);
@@ -451,27 +545,69 @@ public class OrderService {
         Order order = getOrder(orderId);
         String currentOrderStatus = order.getOrderStatus();
 
-        // Đơn hàng đã giao thành công (COMPLETED) hoặc đã hủy (CANCELLED) không thể sửa thông tin thanh toán
-        if ("COMPLETED".equalsIgnoreCase(currentOrderStatus) || "DELIVERED".equalsIgnoreCase(currentOrderStatus)) {
-            log.warn("[ORDER] Từ chối cập nhật thanh toán đơn #{}: Đơn hàng đã giao thành công", order.getOrderCode());
-            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã giao thành công, không thể thay đổi thông tin thanh toán.");
-        }
-        if ("CANCELLED".equalsIgnoreCase(currentOrderStatus)) {
-            log.warn("[ORDER] Từ chối cập nhật thanh toán đơn #{}: Đơn hàng đã bị hủy", order.getOrderCode());
-            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "Đơn hàng đã bị hủy, không thể thay đổi thông tin thanh toán.");
-        }
-
         String oldPayment = order.getPaymentStatus();
         String normalizedPayment = newPaymentStatus != null ? newPaymentStatus.trim().toUpperCase() : oldPayment;
-
-        order.setPaymentStatus(normalizedPayment);
-        order.setUpdatedAt(LocalDateTime.now());
-        Order updated = orderRepository.save(order);
-
         String oldMethod = getPaymentMethod(orderId);
         String normalizedMethod = (newPaymentMethod != null && !newPaymentMethod.isBlank())
                 ? newPaymentMethod.trim().toUpperCase()
                 : oldMethod;
+
+        /*
+         * =========================================================================
+         * CODE REVIEW & KIỂM SOÁT NGHIỆP VỤ THANH TOÁN CHO ĐƠN HOÀN TẤT VÀ ĐƠN HỦY:
+         * -------------------------------------------------------------------------
+         * 1. TRƯỜNG HỢP ĐƠN HÀNG ĐÃ GIAO THÀNH CÔNG (COMPLETED / DELIVERED):
+         *    - Nghiệp vụ COD: Sau khi shipper giao hàng xong, tiền mặt được nộp về và
+         *      kế toán đối soát doanh thu. Kế toán cần quyền cập nhật từ UNPAID -> PAID.
+         *    - Nghiệp vụ Đổi trả / Hoàn hàng: Khách hàng đổi trả trong vòng 3 ngày theo
+         *      chính sách Nhà Xinh. Sau khi kiểm tra hàng nguyên vẹn, kế toán thực hiện
+         *      hoàn tiền và cập nhật trạng thái thanh toán sang REFUNDED (Đã hoàn tiền).
+         *    - Nghiệp vụ Khóa an toàn: Khóa cố định phương thức thanh toán (normalizedMethod = oldMethod),
+         *      không cho phép đổi lung tung phương thức (ví dụ COD sang VNPAY) của đơn đã hoàn tất.
+         *    - Từ chối nếu đưa đơn đã giao thành công về trạng thái thanh toán không hợp lệ (như UNPAID).
+         *
+         * 2. TRƯỜNG HỢP ĐƠN HÀNG ĐÃ HỦY (CANCELLED):
+         *    - Đơn hủy trước đó đã thanh toán online (PAID qua VNPAY / Chuyển khoản): Kế toán
+         *      cần quyền chuyển sang REFUNDED khi đã chuyển trả tiền cho khách.
+         *    - Từ chối nếu đơn đã hủy mà lại cố tình cập nhật thành PAID.
+         * =========================================================================
+         */
+        if ("COMPLETED".equalsIgnoreCase(currentOrderStatus) || "DELIVERED".equalsIgnoreCase(currentOrderStatus)) {
+            // Khóa phương thức thanh toán gốc, không cho phép đổi phương thức khi đơn đã giao
+            normalizedMethod = oldMethod;
+
+            boolean isValidForCompleted = "PAID".equalsIgnoreCase(normalizedPayment)
+                    || "REFUNDED".equalsIgnoreCase(normalizedPayment)
+                    || normalizedPayment.equalsIgnoreCase(oldPayment);
+
+            if (!isValidForCompleted) {
+                log.warn("[ORDER-PAYMENT-VALIDATION] Từ chối đổi thanh toán đơn đã hoàn tất #{} sang {}", order.getOrderCode(), normalizedPayment);
+                throw new ApiException(
+                        ApiErrorCode.VALIDATION_FAILED,
+                        "Đơn hàng đã hoàn tất chỉ cho phép cập nhật sang Đã thanh toán (PAID) hoặc Hoàn tiền đổi trả (REFUNDED)."
+                );
+            }
+        }
+
+        if ("CANCELLED".equalsIgnoreCase(currentOrderStatus)) {
+            // Khóa phương thức thanh toán gốc
+            normalizedMethod = oldMethod;
+
+            boolean isValidForCancelled = "REFUNDED".equalsIgnoreCase(normalizedPayment)
+                    || normalizedPayment.equalsIgnoreCase(oldPayment);
+
+            if (!isValidForCancelled) {
+                log.warn("[ORDER-PAYMENT-VALIDATION] Từ chối đổi thanh toán đơn đã hủy #{} sang {}", order.getOrderCode(), normalizedPayment);
+                throw new ApiException(
+                        ApiErrorCode.VALIDATION_FAILED,
+                        "Đơn hàng đã bị hủy chỉ cho phép cập nhật sang trạng thái Hoàn tiền (REFUNDED)."
+                );
+            }
+        }
+
+        order.setPaymentStatus(normalizedPayment);
+        order.setUpdatedAt(LocalDateTime.now());
+        Order updated = orderRepository.save(order);
 
         List<Payment> payments = paymentRepository.findByOrderId(orderId);
         Payment payment;
@@ -690,6 +826,9 @@ public class OrderService {
         order.setUpdatedAt(LocalDateTime.now());
         Order updated = orderRepository.save(order);
 
+        // Tự động giải phóng hàng giữ chỗ / hoàn trả tồn kho khi hủy đơn
+        releaseOrderInventory(updated, reason != null ? reason.trim() : "Khách hàng hủy đơn");
+
         User historyActor = currentUser != null ? currentUser : order.getUser();
         OrderStatusHistory history = new OrderStatusHistory(
                 updated,
@@ -723,6 +862,94 @@ public class OrderService {
         }
 
         return updated;
+    }
+
+    /**
+     * =========================================================================
+     * CODE REVIEW: TỰ ĐỘNG GIẢI PHÓNG HÀNG GIỮ CHỖ (RELEASE INVENTORY) KHI HỦY ĐƠN HÀNG
+     * -------------------------------------------------------------------------
+     * 1. BỐI CẢNH VÀ VẤN ĐỀ:
+     *    - Khi khách hàng đặt đơn (Checkout qua COD hoặc Chuyển khoản ngân hàng),
+     *      hệ thống tăng số lượng giữ chỗ `quantityReserved` trong bảng `inventory`.
+     *    - Nếu đơn hàng bị hủy mà không hoàn lại kho, lượng hàng này sẽ bị giam
+     *      vĩnh viễn trong `quantityReserved`, khiến tồn kho khả dụng mở bán
+     *      (`availableQuantity = quantityOnHand - quantityReserved`) bị mất oan.
+     *
+     * 2. NGUYÊN TẮC VẬN HÀNH CỦA HÀM NÀY:
+     *    - Lấy toàn bộ sản phẩm và ID biến thể (variantIds) trong đơn hàng bị hủy.
+     *    - Sử dụng `findAllByVariantIdsForUpdate` để khóa bi-quan (SELECT ... FOR UPDATE)
+     *      các dòng kho của biến thể, ngăn chặn Race Condition khi có nhiều thao tác đồng thời.
+     *    - Giảm số lượng giữ chỗ:
+     *         `quantityReserved = Math.max(0, quantityReserved - orderItem.quantity)`
+     *    - Ghi nhận lịch sử biến động kho (`InventoryMovement`):
+     *         + movementType: "RELEASE" (Nhả hàng giữ chỗ)
+     *         + referenceType: "ORDER"
+     *         + referenceId: mã ID của đơn hàng
+     *         + note: Lý do hủy đơn (Khách tự hủy hoặc Admin hủy)
+     *    - Lưu cập nhật kho hàng loạt (batch save) để tối ưu hiệu năng DB.
+     * =========================================================================
+     */
+    private void releaseOrderInventory(Order order, String reason) {
+        if (inventoryService == null || order == null || order.getId() == null) {
+            return;
+        }
+
+        List<OrderItem> items = getOrderItems(order.getId());
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        List<Long> variantIds = items.stream()
+                .map(OrderItem::getVariant)
+                .filter(Objects::nonNull)
+                .map(ProductVariant::getId)
+                .toList();
+
+        if (variantIds.isEmpty()) {
+            return;
+        }
+
+        try {
+            Map<Long, Inventory> lockedInventories = inventoryService.findAllByVariantIdsForUpdate(variantIds);
+            List<InventoryMovement> movements = new ArrayList<>(items.size());
+
+            for (OrderItem item : items) {
+                if (item.getVariant() == null) {
+                    continue;
+                }
+                Inventory inv = lockedInventories.get(item.getVariant().getId());
+                if (inv != null) {
+                    int qty = item.getQuantity() != null && item.getQuantity() > 0 ? item.getQuantity() : 1;
+                    int currentReserved = inv.getQuantityReserved() != null ? inv.getQuantityReserved() : 0;
+
+                    // Nhả số lượng giữ chỗ: Giảm quantityReserved về mức cũ
+                    inv.setQuantityReserved(Math.max(0, currentReserved - qty));
+
+                    InventoryMovement movement = new InventoryMovement();
+                    movement.setVariant(item.getVariant());
+                    movement.setMovementType("RELEASE");
+                    movement.setQuantity(qty);
+                    movement.setReferenceType("ORDER");
+                    movement.setReferenceId(order.getId());
+                    movement.setNote(String.format("Hoàn trả tồn kho do hủy đơn #%s (%s)",
+                            order.getOrderCode(), reason != null && !reason.isBlank() ? reason.trim() : "Hủy đơn hàng"));
+                    movements.add(movement);
+                }
+            }
+
+            if (!lockedInventories.isEmpty()) {
+                inventoryService.saveAll(lockedInventories.values());
+            }
+            if (!movements.isEmpty()) {
+                inventoryService.recordMovements(movements);
+            }
+
+            log.info("[ORDER-INVENTORY-RELEASE] Đã hoàn trả tồn kho thành công cho {} biến thể của đơn hàng #{}: {}",
+                    movements.size(), order.getOrderCode(), reason);
+        } catch (Exception e) {
+            log.error("[ORDER-INVENTORY-RELEASE-FAILED] Lỗi khi giải phóng tồn kho cho đơn #{}: {}",
+                    order.getOrderCode(), e.getMessage(), e);
+        }
     }
 
     private static String normalizePhone(String raw) {

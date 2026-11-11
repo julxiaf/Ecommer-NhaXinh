@@ -277,11 +277,12 @@ export const rbacApi = {
         roles[0] ||
         "CUSTOMER";
 
+      const displayName = u.fullName || u.username || `Tài khoản #${u.id}`;
       return {
         id: String(u.id),
-        username: u.username,
-        name: u.fullName || u.username,
-        email: u.email,
+        username: u.username || (u.email ? u.email.split("@")[0] : `user_${u.id}`),
+        name: displayName,
+        email: u.email || "",
         phone: u.phone || undefined,
         roleCode: primaryRole,
         roleName: ROLE_NAME_MAP[primaryRole] || primaryRole,

@@ -2,6 +2,9 @@ package vn.nhaxinh.cart;
 
 import java.util.Optional;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.nhaxinh.catalog.ProductMedia;
@@ -13,14 +16,23 @@ import vn.nhaxinh.user.User;
 @Transactional
 public class CartService {
 
+    private static final Logger log = LoggerFactory.getLogger(CartService.class);
+
     private final CartRepository cartRepository;
     private final CartItemRepository itemRepository;
     private final InventoryService inventoryService;
+    private final CartCreator cartCreator;
 
-    public CartService(CartRepository cartRepository, CartItemRepository itemRepository, InventoryService inventoryService) {
+    public CartService(
+            CartRepository cartRepository,
+            CartItemRepository itemRepository,
+            InventoryService inventoryService,
+            CartCreator cartCreator
+    ) {
         this.cartRepository = cartRepository;
         this.itemRepository = itemRepository;
         this.inventoryService = inventoryService;
+        this.cartCreator = cartCreator;
     }
 
     @Transactional(readOnly = true)
@@ -33,27 +45,69 @@ public class CartService {
         return cartRepository.findBySessionTokenAndStatus(sessionToken, "ACTIVE");
     }
 
+    /**
+     * Tra cứu hoặc khởi tạo giỏ hàng ACTIVE (an toàn khi chạy song song).
+     * 1. Tìm giỏ ACTIVE trước (theo userId nếu đã đăng nhập, ngược lại theo sessionToken).
+     * 2. Nếu chưa có, tạo qua CartCreator trong transaction riêng (REQUIRES_NEW).
+     * 3. Nếu request song song đã tạo trước (DataIntegrityViolationException) thì tìm lại giỏ ACTIVE đó;
+     *    nếu vẫn không thấy thì ném lại exception.
+     * 4. Giỏ của user đã đăng nhập không lưu session_token.
+     */
     public Cart getOrCreateCart(User user, String sessionToken) {
-        if (user != null) {
-            return cartRepository.findByUserIdAndStatus(user.getId(), "ACTIVE")
-                    .orElseGet(() -> {
-                        Cart cart = new Cart();
-                        cart.setUser(user);
-                        cart.setStatus("ACTIVE");
-                        return cartRepository.save(cart);
-                    });
+        Long userId = user != null ? user.getId() : null;
+        String tokenMasked = CartLoggingHelper.maskToken(sessionToken);
+
+        Optional<Cart> existing = findActiveCart(userId, sessionToken);
+        if (existing.isPresent()) {
+            Cart found = existing.get();
+            log.debug("[CART] Tra cứu giỏ: userId={}, tokenMasked={}, found=true, cartId={}, status={}",
+                    userId, tokenMasked, found.getId(), found.getStatus());
+            return found;
         }
-        return cartRepository.findBySessionTokenAndStatus(sessionToken, "ACTIVE")
-                .orElseGet(() -> {
-                    Cart cart = new Cart();
-                    cart.setSessionToken(sessionToken);
-                    cart.setStatus("ACTIVE");
-                    return cartRepository.save(cart);
-                });
+        log.debug("[CART] Tra cứu giỏ: userId={}, tokenMasked={}, found=false", userId, tokenMasked);
+
+        // Chẩn đoán dữ liệu bẩn: giỏ không ACTIVE vẫn giữ token (nguyên nhân bug trùng uq_carts_session_token)
+        if (user == null && sessionToken != null && !sessionToken.isBlank()) {
+            for (Cart held : cartRepository.findBySessionToken(sessionToken)) {
+                if (!CartStatus.ACTIVE.name().equalsIgnoreCase(held.getStatus())) {
+                    log.warn("[CART] Token đang bị giỏ không ACTIVE giữ: cartId={}, status={}, tokenMasked={}",
+                            held.getId(), held.getStatus(), tokenMasked);
+                }
+            }
+        }
+
+        try {
+            Cart created = cartCreator.createCart(user, sessionToken);
+            log.info("[CART] Tạo giỏ mới: cartId={}, userId={}, tokenMasked={}", created.getId(), userId, tokenMasked);
+            return created;
+        } catch (DataIntegrityViolationException ex) {
+            Optional<Cart> retry = findActiveCart(userId, sessionToken);
+            if (retry.isPresent()) {
+                log.warn("[CART] Gặp DataIntegrityViolationException khi tạo giỏ, đã tìm lại được giỏ do request khác tạo: cartId={}, tokenMasked={}",
+                        retry.get().getId(), tokenMasked);
+                return retry.get();
+            }
+            log.error("[CART] Lỗi trùng khi tạo giỏ nhưng không tìm thấy giỏ ACTIVE: userId={}, tokenMasked={}",
+                    userId, tokenMasked, ex);
+            throw ex;
+        }
+    }
+
+    private Optional<Cart> findActiveCart(Long userId, String sessionToken) {
+        if (userId != null) {
+            return cartRepository.findByUserIdAndStatus(userId, CartStatus.ACTIVE.name());
+        }
+        if (sessionToken == null || sessionToken.isBlank()) {
+            return Optional.empty();
+        }
+        return cartRepository.findBySessionTokenAndStatus(sessionToken, CartStatus.ACTIVE.name());
     }
 
     public CartItem addItem(Cart cart, ProductVariant variant, int quantity) {
+        log.info("[CART] Nhận request thêm sản phẩm: productId={}, quantity={}, cartId={}, tokenMasked={}",
+                variant.getProduct().getId(), quantity, cart.getId(), CartLoggingHelper.maskToken(cart.getSessionToken()));
         if (quantity <= 0 || quantity > 100) {
+            log.warn("[CART] Lỗi nghiệp vụ thêm sản phẩm: số lượng không hợp lệ quantity={}, cartId={}", quantity, cart.getId());
             throw new IllegalArgumentException("Số lượng sản phẩm phải từ 1 đến 100");
         }
 
@@ -68,6 +122,7 @@ public class CartService {
                     .orElse(0);
 
             if (availableStock <= 0) {
+                log.warn("[CART] Lỗi nghiệp vụ thêm sản phẩm: hết hàng variantId={}, cartId={}", variant.getId(), cart.getId());
                 throw new IllegalArgumentException("Sản phẩm [" + variant.getProduct().getName() + " - " + variant.getName() + "] hiện đã hết hàng, không thể thêm vào giỏ hàng.");
             }
 
@@ -76,20 +131,27 @@ public class CartService {
                     .orElse(0);
 
             if (currentQtyInCart + quantity > availableStock) {
+                log.warn("[CART] Lỗi nghiệp vụ thêm sản phẩm: vượt tồn kho variantId={}, cartId={}, yêuCầu={}, tồnKho={}",
+                        variant.getId(), cart.getId(), currentQtyInCart + quantity, availableStock);
                 throw new IllegalArgumentException("Số lượng trong giỏ (" + (currentQtyInCart + quantity) + ") vượt quá số lượng tồn kho có sẵn (" + availableStock + " sản phẩm).");
             }
         }
 
-        return itemRepository.findByCartIdAndVariantId(cart.getId(), variant.getId())
+        CartItem saved = itemRepository.findByCartIdAndVariantId(cart.getId(), variant.getId())
                 .map(item -> {
                     int updatedQuantity = item.getQuantity() + quantity;
                     if (updatedQuantity > 100) {
+                        log.warn("[CART] Lỗi nghiệp vụ thêm sản phẩm: vượt 100 mỗi sản phẩm variantId={}, cartId={}",
+                                variant.getId(), cart.getId());
                         throw new IllegalArgumentException("Số lượng mỗi sản phẩm không được vượt quá 100");
                     }
                     item.setQuantity(updatedQuantity);
                     return itemRepository.save(item);
                 })
                 .orElseGet(() -> itemRepository.save(new CartItem(cart, variant, quantity)));
+        log.info("[CART] Thêm thành công: cartId={}, tổng số dòng item sau khi thêm={}",
+                cart.getId(), itemRepository.findByCartId(cart.getId()).size());
+        return saved;
     }
 
     public Cart getCartById(Long cartId) {
@@ -192,6 +254,7 @@ public class CartService {
         List<CartItem> guestItems = itemRepository.findByCartId(guestCart.getId());
         if (guestItems.isEmpty()) {
             guestCart.setStatus("CONVERTED");
+            guestCart.setSessionToken(null);
             cartRepository.save(guestCart);
             return;
         }
@@ -205,6 +268,7 @@ public class CartService {
             }
         }
         guestCart.setStatus("CONVERTED");
+        guestCart.setSessionToken(null);
         itemRepository.deleteByCartId(guestCart.getId());
         cartRepository.save(guestCart);
     }

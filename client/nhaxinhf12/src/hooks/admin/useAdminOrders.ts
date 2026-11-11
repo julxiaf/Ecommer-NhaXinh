@@ -3,6 +3,10 @@ import type { AdminOrder, RoleDefinition, OrderStatusHistory } from "../../servi
 import { adminApi } from "../../services/admin/adminService";
 import { checkoutService } from "../../services/checkoutService";
 import { usePagination } from "../usePagination";
+import {
+  isValidTransition,
+  getAllowedNextStatuses,
+} from "../../services/admin/orderStateMachine";
 
 interface UseAdminOrdersParams {
   orders: AdminOrder[];
@@ -137,7 +141,8 @@ export function useAdminOrders({
 
   const handleOpenDetail = async (order: AdminOrder) => {
     setSelectedOrder(order);
-    setNewStatus(order.status);
+    const validNext = getAllowedNextStatuses(order.status);
+    setNewStatus((validNext.length > 0 ? validNext[0].value : order.status) as AdminOrder["status"]);
     setStatusNote("");
     setPaymentStatusInput(order.paymentStatus || "paid");
     setPaymentMethodInput(order.paymentMethod || "cod");
@@ -157,7 +162,8 @@ export function useAdminOrders({
     try {
       const fullDetail = await adminApi.getOrderDetail(order.id);
       setSelectedOrder((prev) => (prev && String(prev.id) === String(order.id) ? fullDetail : prev));
-      setNewStatus(fullDetail.status);
+      const validNextFull = getAllowedNextStatuses(fullDetail.status);
+      setNewStatus((validNextFull.length > 0 ? validNextFull[0].value : fullDetail.status) as AdminOrder["status"]);
       if (fullDetail.paymentStatus) setPaymentStatusInput(fullDetail.paymentStatus);
       if (fullDetail.paymentMethod) setPaymentMethodInput(fullDetail.paymentMethod);
       setShippingForm({
@@ -175,21 +181,14 @@ export function useAdminOrders({
 
   const handleApplyStatusChange = async () => {
     if (!selectedOrder) return;
-    if (selectedOrder.status === "completed") {
-      showToast("Đơn hàng đã giao thành công, chỉ có thể xem chi tiết và không thể cập nhật.", "error");
-      return;
-    }
-    if (selectedOrder.status === "cancelled") {
-      showToast("Đơn hàng đã bị hủy, không thể thay đổi trạng thái.", "error");
-      return;
-    }
-    if (selectedOrder.status === "shipping" && newStatus === "cancelled") {
-      showToast("Đơn hàng đã được bàn giao vận chuyển và đang giao đi, không thể hủy.", "error");
-      return;
-    }
-    if (selectedOrder.status === "shipping" && (newStatus === "pending" || newStatus === "confirmed" || newStatus === "processing")) {
-      showToast("Đơn hàng đã được giao đi, không thể chuyển lùi trạng thái.", "error");
-      return;
+    const currentStatus = selectedOrder.status;
+    const selectedNewStatus = newStatus;
+
+    // Client-side validation: Kiểm tra nghiêm ngặt State Machine trước khi gửi Request
+    if (!isValidTransition(currentStatus, selectedNewStatus)) {
+      alert("⚠️ Thao tác không hợp lệ! Không thể chuyển trạng thái từ '" + currentStatus + "' sang '" + selectedNewStatus + "'.");
+      showToast(`⚠️ Thao tác không hợp lệ! Không thể chuyển trạng thái từ '${currentStatus}' sang '${selectedNewStatus}'.`, "error");
+      return; // Chặn không gửi request
     }
 
     setIsSubmittingStatus(true);
@@ -199,7 +198,10 @@ export function useAdminOrders({
 
       if (updated && typeof updated === "object" && "status" in updated) {
         setSelectedOrder(updated);
+        const validNext = getAllowedNextStatuses(updated.status);
+        setNewStatus((validNext.length > 0 ? validNext[0].value : updated.status) as AdminOrder["status"]);
       } else {
+        const nextAllowed = getAllowedNextStatuses(newStatus);
         const updatedHistory: OrderStatusHistory = {
           id: `hist-${Date.now()}`,
           status: newStatus as AdminOrder["status"],
@@ -212,6 +214,7 @@ export function useAdminOrders({
           status: newStatus as AdminOrder["status"],
           statusHistory: [updatedHistory, ...(selectedOrder.statusHistory || [])],
         });
+        setNewStatus((nextAllowed.length > 0 ? nextAllowed[0].value : newStatus) as AdminOrder["status"]);
       }
       setStatusNote("");
     } catch (err: unknown) {

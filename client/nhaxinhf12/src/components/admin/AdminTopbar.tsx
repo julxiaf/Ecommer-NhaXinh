@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Menu, Bell, CheckCheck,
-  Package, AlertTriangle, Tag, Info, ExternalLink
+  Package, AlertTriangle, Tag, Info, ExternalLink,
+  ShieldCheck, PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import type { RoleDefinition, AdminNotification } from "../../services/admin/types";
 
@@ -22,6 +24,8 @@ interface AdminTopbarProps {
 
 export default function AdminTopbar({
   title,
+  isSidebarCollapsed,
+  onToggleSidebar,
   onToggleMobileSidebar,
   currentRole,
   availableRoles,
@@ -32,8 +36,6 @@ export default function AdminTopbar({
   onMarkAllRead,
   onOpenNotifications,
 }: AdminTopbarProps) {
-  void title;
-  void currentRole;
   void availableRoles;
   void onSelectRole;
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -85,8 +87,8 @@ export default function AdminTopbar({
   };
 
   return (
-    <header className="admin-topbar flex items-center justify-between px-3 sm:px-6 relative">
-      <div className="admin-topbar-left flex items-center gap-2 sm:gap-3 min-w-0">
+    <header className="admin-topbar flex items-center justify-between px-3 sm:px-6 relative border-b border-slate-200/80 bg-white/95 backdrop-blur-md sticky top-0 z-40">
+      <div className="admin-topbar-left flex items-center gap-2 sm:gap-3.5 min-w-0">
         {/* Mobile Hamburger Menu Toggle - CHỈ hiển thị trên mobile (<1024px) */}
         <button
           type="button"
@@ -96,41 +98,52 @@ export default function AdminTopbar({
         >
           <Menu size={20} />
         </button>
+
+        {/* Desktop Sidebar Toggle */}
+        {onToggleSidebar && (
+          <button
+            type="button"
+            className="admin-desktop-only items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 p-1.5 rounded-lg transition-colors shrink-0"
+            onClick={onToggleSidebar}
+            title={isSidebarCollapsed ? "Mở rộng thanh bên" : "Thu gọn thanh bên"}
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
+        )}
+
+        {/* Page Title & Breadcrumb */}
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
+            <span>Quản trị</span>
+            <span>/</span>
+            <span className="text-slate-600 font-semibold truncate">{title || "Tổng quan"}</span>
+          </div>
+          <h1 className="admin-page-title text-sm sm:text-base font-bold text-slate-800 tracking-tight truncate leading-tight">
+            {title || "Hệ thống Quản trị"}
+          </h1>
+        </div>
       </div>
 
       <div className="admin-topbar-right flex items-center gap-2 sm:gap-3 shrink-0">
-        {/* Role Switcher - Dùng để kiểm thử phân quyền ngay tại chỗ */}
-        {/* <div
-          className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 bg-blue-50/80 border border-blue-200 rounded-xl text-xs"
-        >
-          <Shield size={14} className="text-blue-600 shrink-0" />
-          <span className="text-blue-900 font-semibold hidden md:inline">Vai trò thử nghiệm:</span>
-
-          <select
-            value={currentRole.id}
-            onChange={(e) => {
-              const selected = availableRoles.find((r) => r.id === e.target.value);
-              if (selected) onSelectRole(selected);
-            }}
-            className="bg-transparent border-none text-blue-600 font-bold text-xs cursor-pointer outline-none max-w-[110px] sm:max-w-none truncate"
-          >
-            {availableRoles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name} ({r.permissions.length} quyền)
-              </option>
-            ))}
-          </select>
-        </div> */}
-
-        {/* View store button */}
-        {/* <Link
+        {/* Quick link: Xem website */}
+        <Link
           to="/"
-          className="admin-btn admin-btn-secondary admin-btn-sm inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all text-slate-700"
           target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-all shadow-xs"
+          title="Xem website Nhà Xinh ở tab mới"
         >
+          <ExternalLink size={13} className="text-slate-400" />
           <span className="hidden sm:inline">Xem website</span>
-          <ArrowUpRight size={14} />
-        </Link> */}
+        </Link>
+
+        {/* Current Role Badge */}
+        {currentRole && (
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-blue-700 text-xs font-semibold">
+            <ShieldCheck size={14} className="text-blue-600 shrink-0" />
+            <span className="truncate max-w-[140px]">{currentRole.name}</span>
+          </div>
+        )}
 
         {/* Notification bell & Dropdown */}
         <div className="relative" ref={notifDropdownRef}>

@@ -11,29 +11,43 @@ import java.util.List;
 public class ApiException extends RuntimeException {
 
     private final ApiErrorCode errorCode;
+    private final String customMessage;
     private final transient List<ApiError.FieldError> details;
 
     public ApiException(ApiErrorCode errorCode) {
-        this(errorCode, errorCode.name(), List.of());
+        this(errorCode, errorCode.name(), null, List.of());
     }
 
     public ApiException(ApiErrorCode errorCode, String internalMessage) {
-        this(errorCode, internalMessage, List.of());
+        this(errorCode, internalMessage, null, List.of());
+    }
+
+    public ApiException(ApiErrorCode errorCode, String internalMessage, String customMessage) {
+        this(errorCode, internalMessage, customMessage, List.of());
     }
 
     public ApiException(ApiErrorCode errorCode, String internalMessage, List<ApiError.FieldError> details) {
+        this(errorCode, internalMessage, null, details);
+    }
+
+    public ApiException(ApiErrorCode errorCode, String internalMessage, String customMessage, List<ApiError.FieldError> details) {
         super(internalMessage);
         this.errorCode = errorCode;
+        this.customMessage = customMessage;
         this.details = details != null ? List.copyOf(details) : List.of();
     }
 
     /** Tiện ích: tạo exception kèm một lỗi chi tiết cho một field. */
     public static ApiException withField(ApiErrorCode errorCode, String field, String reason) {
-        return new ApiException(errorCode, field + ": " + reason, List.of(new ApiError.FieldError(field, reason)));
+        return new ApiException(errorCode, field + ": " + reason, reason, List.of(new ApiError.FieldError(field, reason)));
     }
 
     public ApiErrorCode getErrorCode() {
         return errorCode;
+    }
+
+    public String getCustomMessage() {
+        return customMessage;
     }
 
     public List<ApiError.FieldError> getDetails() {

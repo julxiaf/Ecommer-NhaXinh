@@ -124,6 +124,10 @@ function decodeJwtExpMs(jwt: string): number | null {
   return null;
 }
 
+let activeVerifyPromise: Promise<AuthSession | null> | null = null;
+let lastVerifyTimestamp = 0;
+let lastVerifySessionCache: AuthSession | null = null;
+
 export const userService = {
   // ── SERVER JWT & SESSION HELPERS (JWT chuẩn HS256 chỉ chứa id, role, permissions) ──
   saveJwtToken(token?: string | null, expiresInSeconds?: number | null): void {
@@ -131,12 +135,21 @@ export const userService = {
     try {
       const cleanToken = token.trim();
       if (!cleanToken) return;
+      const currentToken = localStorage.getItem(TOKEN_KEY);
       const decodedExpMs = decodeJwtExpMs(cleanToken);
       const expMs =
         decodedExpMs ??
         Date.now() + (typeof expiresInSeconds === "number" && expiresInSeconds > 0 ? expiresInSeconds * 1000 : 24 * 3600 * 1000);
-      localStorage.setItem(TOKEN_KEY, cleanToken);
-      localStorage.setItem(TOKEN_EXP_KEY, String(expMs));
+      
+      // CHỈ ghi lại localStorage nếu token thực sự thay đổi để tránh kích hoạt vòng lặp StorageEvent giữa các tab
+      if (currentToken !== cleanToken) {
+        localStorage.setItem(TOKEN_KEY, cleanToken);
+      }
+      const currentExp = localStorage.getItem(TOKEN_EXP_KEY);
+      const newExpStr = String(expMs);
+      if (currentExp !== newExpStr) {
+        localStorage.setItem(TOKEN_EXP_KEY, newExpStr);
+      }
       localStorage.removeItem("nhaxinh_user");
       sessionStorage.removeItem("nhaxinh_user");
     } catch {
@@ -251,7 +264,8 @@ export const userService = {
     }
   },
 
-  clearSession(notifyExpired = true): void {
+  clearSession(notifyExpired = false): void {
+    const hadSession = Boolean(inMemorySession) || Boolean(this.getToken());
     inMemorySession = null;
     if (typeof window !== "undefined") {
       try {
@@ -263,7 +277,7 @@ export const userService = {
       } catch {
         // ignore
       }
-      if (notifyExpired) {
+      if (notifyExpired && hadSession) {
         window.dispatchEvent(new CustomEvent("nhaxinh:session_expired"));
       }
     }
@@ -271,43 +285,62 @@ export const userService = {
 
   /**
    * Xác thực trạng thái phiên làm việc & JWT thực tế với backend (`/api/v1/auth/me`).
-   * Nếu phiên hết hạn hoặc không hợp lệ, tự động xóa sạch storage và phát event.
+   * Tích hợp deduplication: tái sử dụng in-flight promise nếu có nhiều lời gọi đồng thời,
+   * và cache kết quả 3 giây để chống spam API.
    */
-  async verifySession(): Promise<AuthSession | null> {
-    try {
-      const res = await fetch(ENDPOINTS.AUTH.ME, {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...this.getAuthHeaders(),
-        },
-      });
-      if (!res.ok) {
-        this.clearSession();
-        return null;
-      }
-      const data: AuthSession = await res.json();
-      if (!data || !data.authenticated) {
-        this.clearSession();
-        return null;
-      }
-
-      this.clearLogoutFlag();
-      if (data.token) {
-        this.saveJwtToken(data.token, data.expiresIn);
-      }
-      const claims = data.token ? decodeJwtClaims(data.token) : this.decodeTokenClaims();
-      inMemorySession = {
-        ...data,
-        id: data.id ?? claims?.id ?? null,
-        roles: data.roles?.length ? data.roles : claims?.roles || [],
-        permissions: data.permissions?.length ? data.permissions : claims?.permissions || [],
-      };
-      return inMemorySession;
-    } catch {
-      return null;
+  async verifySession(force = false): Promise<AuthSession | null> {
+    if (!force && activeVerifyPromise) {
+      return activeVerifyPromise;
     }
+    // Tránh gọi API dồn dập trong khoảng 3 giây nếu đã có kết quả
+    if (!force && Date.now() - lastVerifyTimestamp < 3000 && lastVerifySessionCache) {
+      return lastVerifySessionCache;
+    }
+
+    activeVerifyPromise = (async () => {
+      try {
+        const res = await fetch(ENDPOINTS.AUTH.ME, {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...this.getAuthHeaders(),
+          },
+        });
+        if (!res.ok) {
+          this.clearSession(false);
+          lastVerifySessionCache = null;
+          return null;
+        }
+        const data: AuthSession = await res.json();
+        if (!data || !data.authenticated) {
+          this.clearSession(false);
+          lastVerifySessionCache = null;
+          return null;
+        }
+
+        this.clearLogoutFlag();
+        if (data.token) {
+          this.saveJwtToken(data.token, data.expiresIn);
+        }
+        const claims = data.token ? decodeJwtClaims(data.token) : this.decodeTokenClaims();
+        inMemorySession = {
+          ...data,
+          id: data.id ?? claims?.id ?? null,
+          roles: data.roles?.length ? data.roles : claims?.roles || [],
+          permissions: data.permissions?.length ? data.permissions : claims?.permissions || [],
+        };
+        lastVerifySessionCache = inMemorySession;
+        lastVerifyTimestamp = Date.now();
+        return inMemorySession;
+      } catch {
+        return null;
+      } finally {
+        activeVerifyPromise = null;
+      }
+    })();
+
+    return activeVerifyPromise;
   },
 
   /**

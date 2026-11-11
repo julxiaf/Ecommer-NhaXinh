@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ShieldAlert, Lock, ArrowLeft, LogIn, Loader2 } from "lucide-react";
 import { userService, type AuthSession } from "../../services/userService";
-import { useStore } from "../../hooks/useStore";
 import AdminPortal from "../../pages/admin/AdminPortal";
 
 type GuardStatus = "checking" | "unauthenticated" | "locked" | "forbidden" | "authorized";
@@ -70,7 +69,6 @@ function getInitialAdminSession(): { session: AuthSession | null; status: GuardS
 export default function AdminRouteGuard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useStore();
 
   // Khởi tạo trạng thái ban đầu đồng bộ (tránh nhấp nháy "checking" khi đã có session)
   const [authState, setAuthState] = useState<{ status: GuardStatus; session: AuthSession | null }>(
@@ -100,7 +98,6 @@ export default function AdminRouteGuard() {
       if (!verifiedSession || !verifiedSession.authenticated) {
         memorySessionCache = null;
         userService.clearSession();
-        logout();
         setAuthState({ status: "unauthenticated", session: null });
         return;
       }
@@ -125,7 +122,7 @@ export default function AdminRouteGuard() {
     const handleSessionExpired = () => {
       if (!isMounted) return;
       memorySessionCache = null;
-      logout();
+      userService.clearSession();
       setAuthState({ status: "unauthenticated", session: null });
     };
 
@@ -134,14 +131,13 @@ export default function AdminRouteGuard() {
       isMounted = false;
       window.removeEventListener("nhaxinh:session_expired", handleSessionExpired);
     };
-  }, [logout, status]);
+  }, [status]);
 
   const redirectTarget = encodeURIComponent(location.pathname + location.search);
 
   const handleSwitchToAdminAccount = async () => {
     memorySessionCache = null;
     await userService.logout();
-    logout();
     navigate(`/dang-nhap?redirect=${redirectTarget}`, { replace: true });
   };
 

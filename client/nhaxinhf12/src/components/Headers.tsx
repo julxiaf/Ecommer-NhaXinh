@@ -253,7 +253,7 @@ export default function Header(props: UseHeaderProps) {
       }
     });
 
-    // 2. Lắng nghe sự kiện cập nhật menu khi Admin chỉnh sửa trong Admin Portal
+    // 2. Lắng nghe sự kiện cập nhật menu khi Admin chỉnh sửa trong Admin Portal (đồng bộ trong cùng tab & qua BroadcastChannel)
     const handleMenuUpdate = (e?: Event) => {
       const customEvt = e as CustomEvent<ClientMenuItem[]>;
       if (customEvt?.detail && Array.isArray(customEvt.detail)) {
@@ -263,8 +263,20 @@ export default function Header(props: UseHeaderProps) {
       }
     };
     window.addEventListener(CMS_EVENTS.MENU_UPDATED, handleMenuUpdate);
+
+    // 3. Tự động kiểm tra đồng bộ khi người dùng quay lại tab xem trang
+    const handleFocus = () => {
+      clientCmsService.fetchMenuItems().then((items) => {
+        if (Array.isArray(items) && items.length > 0) {
+          setCmsMenu(items.filter((item) => item.isVisible));
+        }
+      });
+    };
+    window.addEventListener("focus", handleFocus);
+
     return () => {
       window.removeEventListener(CMS_EVENTS.MENU_UPDATED, handleMenuUpdate);
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 

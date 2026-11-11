@@ -3,10 +3,9 @@ import { useState, useMemo, useEffect } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import type { Product, CategoryItem } from "../types/catalog";
 import { productService, DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
-import { categoryService } from "../services/categoryService";
+import { categoryService, parseCollectionMeta } from "../services/categoryService";
 import { adminApi } from "../services/admin/adminService";
 import { articleService } from "../services/articleService";
-import { parseCollectionMeta } from "../services/admin/catalogApi";
 import { usePagination } from "./usePagination";
 import { ENDPOINTS } from "../services/apiEndpoints";
 
@@ -277,16 +276,146 @@ export function useProductList() {
   const [gridCols, setGridCols] = useState<3 | 4>(3);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    categoryService
-      .getCategories()
-      .then((cats) => {
-        if (cats && cats.length > 0) setApiCategories(cats);
-      })
-      .catch(() => {});
+  // ══════════════════════════════════════════════════════════
+  // HELPER FUNCTIONS: Lọc & Map dữ liệu Collection (DRY Principle)
+  // ══════════════════════════════════════════════════════════
 
-    // Đồng bộ Bộ sưu tập trực tiếp từ hệ thống Backend Spring Boot & MySQL (/api/v1/collections)
+  /**
+   * Kiểm tra bản ghi Collection / Category hợp lệ:
+   * Loại bỏ isDeleted === true, status DRAFT/ARCHIVED, và name/slug chứa "test"
+   */
+  const isValidCollectionRecord = (item?: {
+    isDeleted?: boolean | null;
+    status?: string | null;
+    name?: string | null;
+    slug?: string | null;
+  } | null): boolean => {
+    if (!item || item.isDeleted) return false;
+    const status = (item.status || "").toUpperCase();
+    if (status === "DRAFT" || status === "ARCHIVED") return false;
+    const name = (item.name || "").toLowerCase();
+    const slug = (item.slug || "").toLowerCase();
+    if (name.includes("test") || slug.includes("test")) return false;
+    return true;
+  };
+
+  /**
+   * Gom chung logic map dữ liệu Collection vào một hàm xử lý độc lập (processCollectionItem)
+   * Tự động bù đắp dữ liệu thiếu từ DEFAULT_COLLECTIONS hoặc bài viết bài PR tương ứng
+   */
+  const processCollectionItem = (
+    item: {
+      slug?: string | null;
+      name?: string | null;
+      description?: string | null;
+      coverImageUrl?: string | null;
+      imageUrl?: string | null;
+      subtitle?: string | null;
+      introQuote?: string | null;
+      storyTitle?: string | null;
+      styleTag?: string | null;
+      materials?: string | null;
+      videoUrl?: string | null;
+      galleryImages?: string[] | null;
+      productIds?: number[] | null;
+    },
+    backendArticles: Array<{
+      collectionSlug?: string | null;
+      title?: string | null;
+      summary?: string | null;
+      image?: string | null;
+    }> = []
+  ): CollectionInfo | null => {
+    const rawSlug = (item?.slug || "").trim();
+    const rawName = (item?.name || "").trim();
+    if (!rawSlug || !rawName) return null;
+
+    const rawDesc = typeof item?.description === "string" ? item.description : null;
+    const rawCover =
+      (typeof item?.coverImageUrl === "string" ? item.coverImageUrl : null) ||
+      (typeof item?.imageUrl === "string" ? item.imageUrl : null);
+
+    const { cleanDescription, meta } = parseCollectionMeta(rawDesc);
+
+    const defaultMatch = DEFAULT_COLLECTIONS.find(
+      (dc) => dc?.slug === rawSlug || dc?.aliases?.includes(rawSlug)
+    );
+
+    const matchingArticle = backendArticles.find(
+      (a) => a?.collectionSlug?.toLowerCase() === rawSlug.toLowerCase()
+    );
+
+    return {
+      slug: rawSlug,
+      aliases: Array.from(new Set([rawSlug, ...(defaultMatch?.aliases || [])])),
+      name: rawName,
+      subtitle:
+        meta?.subtitle ||
+        item?.subtitle ||
+        matchingArticle?.title ||
+        defaultMatch?.subtitle ||
+        "Câu chuyện của sự khởi đầu",
+      introQuote:
+        meta?.introQuote ||
+        item?.introQuote ||
+        defaultMatch?.introQuote ||
+        `“${rawName.toUpperCase()}” – một cái tên đầy ý nghĩa với mong muốn tạo ra những kết nối tinh tế, để cùng nhau dệt nên câu chuyện không gian sống đầy cảm hứng.`,
+      storyTitle:
+        meta?.storyTitle ||
+        item?.storyTitle ||
+        defaultMatch?.storyTitle ||
+        "Chất liệu cao cấp tạo trải nghiệm đẳng cấp",
+      styleTag:
+        meta?.styleTag ||
+        item?.styleTag ||
+        defaultMatch?.styleTag ||
+        "Signature Collection",
+      materials:
+        meta?.materials ||
+        item?.materials ||
+        defaultMatch?.materials ||
+        "Gỗ tự nhiên cao cấp • Da thật & Vải dệt tuyển chọn",
+      description:
+        cleanDescription ||
+        item?.description ||
+        matchingArticle?.summary ||
+        defaultMatch?.description ||
+        `Khám phá các thiết kế tinh tế thuộc ${rawName}, mang đậm dấu ấn thẩm mỹ đương đại và công năng vượt trội.`,
+      bannerImage:
+        rawCover ||
+        matchingArticle?.image ||
+        defaultMatch?.bannerImage ||
+        DEFAULT_PLACEHOLDER_IMAGE,
+      videoUrl: meta?.videoUrl || item?.videoUrl || defaultMatch?.videoUrl,
+      galleryImages:
+        meta?.galleryImages && meta.galleryImages.length > 0
+          ? meta.galleryImages
+          : item?.galleryImages && item.galleryImages.length > 0
+          ? item.galleryImages
+          : defaultMatch?.galleryImages || [
+              rawCover || defaultMatch?.bannerImage || DEFAULT_PLACEHOLDER_IMAGE,
+            ],
+      productIds: meta?.productIds || item?.productIds || defaultMatch?.productIds,
+      keywords: Array.from(
+        new Set([
+          rawSlug,
+          rawSlug.replace(/-/g, " "),
+          ...rawName.toLowerCase().split(/\s+/),
+          ...(defaultMatch?.keywords || []),
+        ])
+      ),
+    };
+  };
+
+  // ══════════════════════════════════════════════════════════
+  // EFFECT 1: Nạp & Đồng bộ Dữ liệu Bộ Sưu Tập và Danh Mục
+  // ══════════════════════════════════════════════════════════
+  useEffect(() => {
+    let active = true;
+
+    // Sử dụng Promise.all để gọi đồng thời toàn bộ API mà không làm chặn luồng render
     Promise.all([
+      categoryService.getCategories().catch(() => [] as CategoryItem[]),
       fetch(ENDPOINTS.COLLECTIONS.BASE, {
         headers: { "Content-Type": "application/json" },
       })
@@ -294,194 +423,86 @@ export function useProductList() {
         .catch(() => [] as Array<Record<string, unknown>>),
       adminApi.getCategories().catch(() => []),
       articleService.getPublicArticles({ category: "Bộ sưu tập" }).catch(() => []),
-    ]).then(([backendCollections, backendCats, backendArticles]) => {
+    ]).then(([cats, backendCollections, backendCats, backendArticles]) => {
+      // Đảm bảo không gọi setState khi component unmount (tránh memory leak)
+      if (!active) return;
+
+      // 1. Cập nhật danh sách danh mục công khai
+      if (cats && cats.length > 0) {
+        setApiCategories(cats);
+      }
+
       const loadedMap = new Map<string, CollectionInfo>();
 
-      // 1. Nạp từ bảng collections thật (/api/v1/collections)
+      // 2. Nạp từ bảng collections thật (/api/v1/collections)
       if (Array.isArray(backendCollections)) {
         backendCollections
-          .filter(
-            (c) =>
-              !c.isDeleted &&
-              String(c.status || "").toUpperCase() !== "DRAFT" &&
-              String(c.status || "").toUpperCase() !== "ARCHIVED" &&
-              !String(c.name || "").toLowerCase().includes("test") &&
-              !String(c.slug || "").toLowerCase().includes("test")
-          )
+          .filter(isValidCollectionRecord)
           .forEach((c) => {
-            const rawSlug = String(c.slug || "");
-            const rawName = String(c.name || "");
-            const rawDesc = typeof c.description === "string" ? c.description : null;
-            const rawCover = typeof c.coverImageUrl === "string" ? c.coverImageUrl : null;
-
-            const { cleanDescription, meta } = parseCollectionMeta(rawDesc);
-            const defaultMatch = DEFAULT_COLLECTIONS.find(
-              (dc) => dc.slug === rawSlug || dc.aliases?.includes(rawSlug)
-            );
-            const matchingArticle = backendArticles.find(
-              (a) => a.collectionSlug?.toLowerCase() === rawSlug.toLowerCase()
-            );
-
-            loadedMap.set(rawSlug, {
-              slug: rawSlug,
-              aliases: Array.from(new Set([rawSlug, ...(defaultMatch?.aliases || [])])),
-              name: rawName,
-              subtitle:
-                meta.subtitle ||
-                matchingArticle?.title ||
-                defaultMatch?.subtitle ||
-                `Câu chuyện của sự khởi đầu`,
-              introQuote:
-                meta.introQuote ||
-                defaultMatch?.introQuote ||
-                `“${rawName.toUpperCase()}” – một cái tên đầy ý nghĩa với mong muốn tạo ra những kết nối tinh tế, để cùng nhau dệt nên câu chuyện không gian sống đầy cảm hứng.`,
-              storyTitle:
-                meta.storyTitle ||
-                defaultMatch?.storyTitle ||
-                "Chất liệu cao cấp tạo trải nghiệm đẳng cấp",
-              styleTag: meta.styleTag || defaultMatch?.styleTag || "Signature Collection",
-              materials:
-                meta.materials ||
-                defaultMatch?.materials ||
-                "Gỗ tự nhiên cao cấp • Da thật & Vải dệt tuyển chọn",
-              description:
-                cleanDescription ||
-                matchingArticle?.summary ||
-                defaultMatch?.description ||
-                `Khám phá các thiết kế tinh tế thuộc ${rawName}, mang đậm dấu ấn thẩm mỹ đương đại và công năng vượt trội.`,
-              bannerImage:
-                rawCover ||
-                matchingArticle?.image ||
-                defaultMatch?.bannerImage ||
-                DEFAULT_PLACEHOLDER_IMAGE,
-              videoUrl: meta.videoUrl || defaultMatch?.videoUrl,
-              galleryImages:
-                meta.galleryImages && meta.galleryImages.length > 0
-                  ? meta.galleryImages
-                  : defaultMatch?.galleryImages || [
-                      rawCover || defaultMatch?.bannerImage || DEFAULT_PLACEHOLDER_IMAGE,
-                    ],
-              productIds: meta.productIds || defaultMatch?.productIds,
-              keywords: Array.from(
-                new Set([
-                  rawSlug,
-                  rawSlug.replace(/-/g, " "),
-                  ...rawName.toLowerCase().split(/\s+/),
-                  ...(defaultMatch?.keywords || []),
-                ])
-              ),
-            });
+            const processed = processCollectionItem(c, backendArticles);
+            if (processed) {
+              loadedMap.set(processed.slug, processed);
+            }
           });
       }
 
-      // 2. Nạp thêm các danh mục thuộc nhóm COLLECTION từ categories (nếu chưa có trong loadedMap)
-      const rootColCat = backendCats.find(
-        (c) => c.slug === "bo-suu-tap" || c.name.toLowerCase().includes("bộ sưu tập")
-      );
-      const rootId = rootColCat ? rootColCat.id : null;
+      // 3. Nạp bổ sung các Bộ sưu tập từ bảng categories (nếu chưa có trong loadedMap)
+      if (Array.isArray(backendCats)) {
+        const rootColCat = backendCats.find(
+          (c) => c?.slug === "bo-suu-tap" || c?.name?.toLowerCase()?.includes("bộ sưu tập")
+        );
+        const rootId = rootColCat?.id ? String(rootColCat.id) : null;
 
-      const collectionCategories = backendCats.filter(
-        (c) =>
-          !c.isDeleted &&
-          c.slug !== "bo-suu-tap" &&
-          !c.name.toLowerCase().includes("test") &&
-          !c.slug.toLowerCase().includes("test") &&
-          (c.isCollection ||
-            c.categoryGroup === "COLLECTION" ||
-            (rootId && String(c.parentId) === String(rootId)) ||
-            c.parentId === "cat-collections")
-      );
+        const collectionCategories = backendCats.filter(
+          (c) =>
+            isValidCollectionRecord(c) &&
+            c?.slug !== "bo-suu-tap" &&
+            (c?.isCollection ||
+              c?.categoryGroup === "COLLECTION" ||
+              (rootId && String(c?.parentId) === rootId) ||
+              c?.parentId === "cat-collections")
+        );
 
-      collectionCategories.forEach((c) => {
-        if (!loadedMap.has(c.slug)) {
-          const { cleanDescription, meta } = parseCollectionMeta(c.description);
-          const defaultMatch = DEFAULT_COLLECTIONS.find(
-            (dc) => dc.slug === c.slug || dc.aliases?.includes(c.slug)
-          );
-          const matchingArticle = backendArticles.find(
-            (a) => a.collectionSlug?.toLowerCase() === c.slug.toLowerCase()
-          );
+        collectionCategories.forEach((c) => {
+          if (c?.slug && !loadedMap.has(c.slug)) {
+            const processed = processCollectionItem(c, backendArticles);
+            if (processed) {
+              loadedMap.set(processed.slug, processed);
+            }
+          }
+        });
+      }
 
-          loadedMap.set(c.slug, {
-            slug: c.slug,
-            aliases: Array.from(new Set([c.slug, ...(defaultMatch?.aliases || [])])),
-            name: c.name,
-            subtitle:
-              meta.subtitle ||
-              c.subtitle ||
-              matchingArticle?.title ||
-              defaultMatch?.subtitle ||
-              `Câu chuyện của sự khởi đầu`,
-            introQuote:
-              meta.introQuote ||
-              c.introQuote ||
-              defaultMatch?.introQuote ||
-              `“${c.name.toUpperCase()}” – một cái tên đầy ý nghĩa với mong muốn tạo ra những kết nối tinh tế, để cùng nhau dệt nên câu chuyện không gian sống đầy cảm hứng.`,
-            storyTitle:
-              meta.storyTitle ||
-              c.storyTitle ||
-              defaultMatch?.storyTitle ||
-              "Chất liệu cao cấp tạo trải nghiệm đẳng cấp",
-            styleTag: meta.styleTag || c.styleTag || defaultMatch?.styleTag || "Signature Collection",
-            materials:
-              meta.materials ||
-              c.materials ||
-              defaultMatch?.materials ||
-              "Gỗ tự nhiên cao cấp • Da thật & Vải dệt tuyển chọn",
-            description:
-              cleanDescription ||
-              c.description ||
-              matchingArticle?.summary ||
-              defaultMatch?.description ||
-              `Khám phá các thiết kế tinh tế thuộc ${c.name}, mang đậm dấu ấn thẩm mỹ đương đại và công năng vượt trội.`,
-            bannerImage:
-              c.imageUrl ||
-              matchingArticle?.image ||
-              defaultMatch?.bannerImage ||
-              DEFAULT_PLACEHOLDER_IMAGE,
-            videoUrl: meta.videoUrl || c.videoUrl || defaultMatch?.videoUrl,
-            galleryImages:
-              meta.galleryImages && meta.galleryImages.length > 0
-                ? meta.galleryImages
-                : c.galleryImages && c.galleryImages.length > 0
-                ? c.galleryImages
-                : defaultMatch?.galleryImages || [
-                    c.imageUrl || defaultMatch?.bannerImage || DEFAULT_PLACEHOLDER_IMAGE,
-                  ],
-            productIds: meta.productIds || c.productIds || defaultMatch?.productIds,
-            keywords: Array.from(
-              new Set([
-                c.slug,
-                c.slug.replace(/-/g, " "),
-                ...c.name.toLowerCase().split(/\s+/),
-                ...(defaultMatch?.keywords || []),
-              ])
-            ),
-          });
-        }
-      });
-
+      // 4. Cập nhật danh sách Bộ sưu tập đồng bộ
       if (loadedMap.size > 0) {
         setCollections(Array.from(loadedMap.values()));
       }
     });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
+  // ══════════════════════════════════════════════════════════
+  // EFFECT 2: Tự động Reset Bộ Lọc & Nạp Lại Sản Phẩm khi Đổi Route
+  // ══════════════════════════════════════════════════════════
   useEffect(() => {
     let active = true;
 
-    // Tự động làm mới và reset bộ lọc khi chuyển route giữa các danh mục / sản phẩm mới / tất cả sản phẩm
+    // 1. Tự động reset bộ lọc khi chuyển route giữa các danh mục / sản phẩm mới / tất cả sản phẩm
     setSelectedCat("all");
     setSelectedMaterial("all");
     setSearchQuery("");
     setPriceRange([0, 100_000_000]);
     setSortBy(isNewProductRoute ? "newest" : "default");
 
-    // Chuyển việc cập nhật loading sang microtask để tránh gọi setState đồng bộ trong thân effect
+    // Chuyển việc cập nhật loading sang microtask để tránh re-render đồng bộ
     Promise.resolve().then(() => {
       if (active) setLoading(true);
     });
 
+    // 2. Nạp lại danh sách sản phẩm theo route mới
     productService
       .getProductsFromApi({ size: 100 })
       .then((prods) => {
@@ -499,7 +520,7 @@ export function useProductList() {
     return () => {
       active = false;
     };
-  }, [location.pathname, slug]);
+  }, [location.pathname, slug, isNewProductRoute]);
 
   const activeCategoryNode = useMemo(
     () => (slug ? apiCategories.find((cat) => cat.slug === slug) : undefined),

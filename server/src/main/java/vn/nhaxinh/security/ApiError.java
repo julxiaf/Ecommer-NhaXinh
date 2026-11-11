@@ -17,20 +17,29 @@ import java.util.List;
  * </pre>
  *
  * Lưu ý bảo mật:
- *  - Trường {@code message} CHỈ chứa thông điệp user-friendly từ {@link ApiErrorCode}.
- *  - Stack trace, tên class, DB errors KHÔNG BAO GIỜ được đưa vào response.
- *  - {@code details} chỉ chứa tên field và mô tả vi phạm validation, không chứa giá trị.
+ * - Trường {@code message} CHỈ chứa thông điệp user-friendly từ
+ * {@link ApiErrorCode}.
+ * - Stack trace, tên class, DB errors KHÔNG BAO GIỜ được đưa vào response.
+ * - {@code details} chỉ chứa tên field và mô tả vi phạm validation, không chứa
+ * giá trị.
  */
 public record ApiError(
         String code,
         String message,
         Instant timestamp,
         String path,
-        List<FieldError> details
+        List<FieldError> details,
+        String requestId
 ) {
 
+    /** Constructor tương thích ngược (không có requestId) — requestId lấy từ MDC nếu có. */
+    public ApiError(String code, String message, Instant timestamp, String path, List<FieldError> details) {
+        this(code, message, timestamp, path, details, org.slf4j.MDC.get("requestId"));
+    }
+
     /** Lỗi chi tiết cho từng field (dùng trong validation). */
-    public record FieldError(String field, String reason) {}
+    public record FieldError(String field, String reason) {
+    }
 
     // -----------------------------------------------------------------------
     // Factory methods
@@ -42,8 +51,7 @@ public record ApiError(
                 errorCode.getUserMessage(),
                 Instant.now(),
                 path,
-                List.of()
-        );
+                List.of());
     }
 
     public static ApiError of(ApiErrorCode errorCode, String path, List<FieldError> details) {
@@ -52,7 +60,6 @@ public record ApiError(
                 errorCode.getUserMessage(),
                 Instant.now(),
                 path,
-                details
-        );
+                details);
     }
 }

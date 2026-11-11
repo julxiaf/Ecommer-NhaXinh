@@ -9,3 +9,6 @@ v.stock?.availableQuantity !== undefined ? (
                                     {varStock > 0 ? "Còn hàng" : "Hết hàng"}
                                   </span>
                                 ) : 
+
+                                NGUYEN VAN A
+                                9704198526191432198

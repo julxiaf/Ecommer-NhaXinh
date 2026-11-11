@@ -34,7 +34,8 @@ export function ChangeStaffRoleModal({
           Đổi vai trò nhân sự
         </h3>
         <p className="text-xs text-slate-500">
-          Phân công lại quyền hạn cho nhân sự <strong className="text-slate-800">{staff.name}</strong> ({staff.email})
+          Phân công lại quyền hạn cho nhân sự <strong className="text-slate-800">{staff.name || staff.username}</strong>
+          {staff.email ? ` (${staff.email})` : ""}
         </p>
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1">Chọn vai trò mới *</label>

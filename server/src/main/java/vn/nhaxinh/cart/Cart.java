@@ -30,7 +30,7 @@ public class Cart {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @Column(name = "session_token", unique = true, length = 128)
+    @Column(name = "session_token", unique = true, length = 128, nullable = true)
     private String sessionToken;
 
     @Column(nullable = false, length = 20)

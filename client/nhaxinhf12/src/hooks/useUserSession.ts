@@ -12,12 +12,28 @@ export interface UserInfo {
 // Cooldown trong bộ nhớ để tránh gọi verifySession() dồn dập khi nhiều component dùng useStore() cùng mount
 let lastVerifiedAt = 0;
 const VERIFY_COOLDOWN_MS = 60_000; // 1 phút
+let lastKnownToken: string | null = null;
+let isVerifyingSession = false;
 
 // Bộ nhớ RAM chia sẻ trạng thái hiển thị người dùng giữa các component (KHÔNG lưu nhaxinh_user vào localStorage/sessionStorage)
 let memoryUserCache: UserInfo | null = null;
 const USER_UPDATED_EVENT = "nhaxinh:user_updated";
 
 function updateMemoryUser(next: UserInfo | null, broadcast = true): void {
+  // Tránh dispatch event lặp lại nếu thông tin user không thay đổi
+  if (
+    memoryUserCache === next ||
+    (memoryUserCache &&
+      next &&
+      memoryUserCache.email === next.email &&
+      memoryUserCache.fullName === next.fullName &&
+      memoryUserCache.phone === next.phone &&
+      memoryUserCache.address === next.address &&
+      memoryUserCache.avatar === next.avatar)
+  ) {
+    return;
+  }
+
   memoryUserCache = next;
   if (typeof window !== "undefined") {
     try {
@@ -68,12 +84,34 @@ export function useUserSession() {
     // Đồng bộ giữa các tab trình duyệt khi token thay đổi
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === "nhaxinh_auth_token") {
-        if (!e.newValue) {
+        const newToken = e.newValue ? e.newValue.trim() : null;
+        const oldToken = e.oldValue ? e.oldValue.trim() : null;
+
+        // Nếu token không thay đổi gì cả -> bỏ qua ngay lập tức để chặn đứt vòng lặp StorageEvent
+        if (newToken === oldToken || (newToken && newToken === lastKnownToken)) {
+          return;
+        }
+
+        lastKnownToken = newToken;
+
+        if (!newToken) {
+          // Token bị xóa -> Đăng xuất
           memoryUserCache = null;
           setUser(null);
-        } else {
-          lastVerifiedAt = 0;
-          void userService.verifySession().then((session) => {
+          return;
+        }
+
+        // Bỏ qua nếu vừa xác thực gần đây (cooldown tối thiểu 10 giây giữa các sự kiện storage)
+        if (Date.now() - lastVerifiedAt < 10_000 || isVerifyingSession) {
+          return;
+        }
+
+        lastVerifiedAt = Date.now();
+        isVerifyingSession = true;
+
+        void userService
+          .verifySession()
+          .then((session) => {
             if (session && session.authenticated) {
               const synced: UserInfo = {
                 fullName: session.fullName || session.email || "Khách hàng",
@@ -83,9 +121,16 @@ export function useUserSession() {
                 avatar: memoryUserCache?.avatar,
               };
               updateMemoryUser(synced, true);
+            } else {
+              updateMemoryUser(null, true);
             }
+          })
+          .catch(() => {
+            // ignore network error
+          })
+          .finally(() => {
+            isVerifyingSession = false;
           });
-        }
       }
     };
 
@@ -94,24 +139,41 @@ export function useUserSession() {
     window.addEventListener("storage", handleStorageChange);
 
     // Xác thực với backend khi mới tải trang hoặc đã qua thời gian cooldown
+    const currentToken = typeof window !== "undefined" ? localStorage.getItem("nhaxinh_auth_token") : null;
+    const hasToken = Boolean(currentToken);
     const shouldVerify =
-      !memoryUserCache || Date.now() - lastVerifiedAt > VERIFY_COOLDOWN_MS;
+      !isVerifyingSession &&
+      (hasToken ? Date.now() - lastVerifiedAt > VERIFY_COOLDOWN_MS : lastVerifiedAt === 0);
+
     if (shouldVerify) {
       lastVerifiedAt = Date.now();
-      void userService.verifySession().then((session) => {
-        if (!session || !session.authenticated) {
-          updateMemoryUser(null, true);
-        } else {
-          const updated: UserInfo = {
-            fullName: session.fullName || memoryUserCache?.fullName || session.email || "Khách hàng",
-            email: session.email || memoryUserCache?.email || "",
-            phone: session.phone || memoryUserCache?.phone || "",
-            address: memoryUserCache?.address || "",
-            avatar: memoryUserCache?.avatar,
-          };
-          updateMemoryUser(updated, true);
-        }
-      });
+      isVerifyingSession = true;
+      if (currentToken) {
+        lastKnownToken = currentToken.trim();
+      }
+
+      void userService
+        .verifySession()
+        .then((session) => {
+          if (!session || !session.authenticated) {
+            updateMemoryUser(null, true);
+          } else {
+            const updated: UserInfo = {
+              fullName: session.fullName || memoryUserCache?.fullName || session.email || "Khách hàng",
+              email: session.email || memoryUserCache?.email || "",
+              phone: session.phone || memoryUserCache?.phone || "",
+              address: memoryUserCache?.address || "",
+              avatar: memoryUserCache?.avatar,
+            };
+            updateMemoryUser(updated, true);
+          }
+        })
+        .catch(() => {
+          // ignore network error
+        })
+        .finally(() => {
+          isVerifyingSession = false;
+        });
     }
 
     return () => {

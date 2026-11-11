@@ -119,18 +119,18 @@ export function StaffManagementTab({
                   <tr key={staff.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-3.5 font-semibold text-slate-800 flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs">
-                        {staff.name.charAt(0)}
+                        {(staff.name || staff.username || staff.email || "U").charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div>{staff.name}</div>
+                        <div>{staff.name || staff.username || `Tài khoản #${staff.id}`}</div>
                         <div className="text-[10px] text-slate-400 font-mono">ID: {staff.id}</div>
                       </div>
                     </td>
                     <td className="p-3.5 font-mono text-slate-700 font-semibold">
-                      {staff.username || staff.email.split("@")[0]}
+                      {staff.username || (staff.email ? staff.email.split("@")[0] : `user_${staff.id}`)}
                     </td>
                     <td className="p-3.5 text-slate-600">
-                      <div className="font-mono text-[11px]">{staff.email}</div>
+                      <div className="font-mono text-[11px]">{staff.email || "—"}</div>
                       {staff.phone && <div className="text-[10px] text-slate-400">{staff.phone}</div>}
                     </td>
                     <td className="p-3.5">
@@ -169,9 +169,10 @@ export function StaffManagementTab({
                             onClick={() => {
                               const nextStatus = staff.status === "active" ? "inactive" : "active";
                               const actionText = nextStatus === "active" ? "mở khóa" : "tạm khóa";
-                              if (confirm(`Bạn có chắc chắn muốn ${actionText} tài khoản của ${staff.name}?`)) {
+                              const staffDisplayName = staff.name || staff.username || `Tài khoản #${staff.id}`;
+                              if (confirm(`Bạn có chắc chắn muốn ${actionText} tài khoản của ${staffDisplayName}?`)) {
                                 onUpdateStaffStatus?.(staff.id, nextStatus);
-                                showToast(`Đã ${actionText} tài khoản nhân sự ${staff.name} và ghi vào Nhật ký Phân quyền.`);
+                                showToast(`Đã ${actionText} tài khoản nhân sự ${staffDisplayName} và ghi vào Nhật ký Phân quyền.`);
                               }
                             }}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-all ${

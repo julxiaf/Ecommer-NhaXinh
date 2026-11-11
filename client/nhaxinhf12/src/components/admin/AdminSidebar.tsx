@@ -198,9 +198,9 @@ export default function AdminSidebar({
                     {item.label}
                   </span>
 
-                  {item.badge !== undefined && (
+                  {item.badge !== undefined && item.badge > 0 && (
                     <span
-                      className="admin-nav-badge"
+                      className="admin-nav-badge ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{
                         background: item.badgeColor
                           ? `${item.badgeColor}15`

@@ -8,9 +8,8 @@ import { HeroBanner } from "../components/HeroBanner";
 import ProductCard from "../components/ProductCard";
 import type { Product, CategoryItem } from "../types/catalog";
 import { productService, DEFAULT_PLACEHOLDER_IMAGE } from "../services/productService";
-import { categoryService } from "../services/categoryService";
+import { categoryService, parseCollectionMeta } from "../services/categoryService";
 import { ENDPOINTS } from "../services/apiEndpoints";
-import { parseCollectionMeta } from "../services/admin/catalogApi";
 import PandoraSuggest from "../components/PandoraSuggest";
 import { clientCmsService, CMS_EVENTS, type HeroBannerItem } from "../services/clientCmsService";
 import { useStore } from "../hooks/useStore";
@@ -63,35 +62,40 @@ export function HomePage() {
   // const [categories, setCategories] = useState<CategoryItem[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout guard
+
     const fetchData = async () => {
       try {
-        // 1. Lấy sản phẩm nổi bật
-        const featured = await productService.getFeaturedProducts(8);
-        if (featured && featured.length > 0) {
-          setFeaturedProducts(featured);
-        } else {
-          // Fallback sang getProducts nếu cần
-          const prods = await productService.getProducts({ size: 8 });
-          if (prods && prods.length > 0) {
-            setFeaturedProducts(prods.slice(0, 8));
-          }
-        }
-
-        // 2. Lấy Bộ sưu tập thật từ Backend (/api/v1/collections) & Danh mục
-        const [colRes, cats] = await Promise.all([
+        // Chạy đồng thời toàn bộ dữ liệu trang chủ (Sản phẩm nổi bật, Bộ sưu tập, Danh mục)
+        // Song song không tuần tự thác nước, tránh làm nghẽn trang chủ
+        const [featuredRes, colRes, catsRes] = await Promise.allSettled([
+          productService.getFeaturedProducts(8),
           fetch(ENDPOINTS.COLLECTIONS.BASE, {
             headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
           })
             .then((r) => (r.ok ? (r.json() as Promise<BackendCollectionResponse[]>) : []))
             .catch(() => [] as BackendCollectionResponse[]),
           categoryService.getCategories().catch(() => [] as CategoryItem[]),
         ]);
 
+        if (!isMounted) return;
+
+        // 1. Cập nhật Sản phẩm nổi bật
+        if (featuredRes.status === "fulfilled" && featuredRes.value && featuredRes.value.length > 0) {
+          setFeaturedProducts(featuredRes.value);
+        }
+
+        // 2. Cập nhật Bộ sưu tập
+        const collectionsData = colRes.status === "fulfilled" ? colRes.value : [];
+        const catsData = catsRes.status === "fulfilled" ? catsRes.value : [];
         const collectionMap = new Map<string, HomeCollectionCardItem>();
 
         // A) Nạp từ bảng collections (/api/v1/collections)
-        if (Array.isArray(colRes)) {
-          colRes
+        if (Array.isArray(collectionsData)) {
+          collectionsData
             .filter(
               (c) =>
                 !c.isDeleted &&
@@ -103,6 +107,7 @@ export function HomePage() {
             .forEach((c) => {
               const { cleanDescription, meta } = parseCollectionMeta(c.description);
               const count = c.productCount ?? c.products?.length ?? 0;
+              const imgUrl = (c.coverImageUrl || c.products?.[0]?.primaryImageUrl || "").trim();
               collectionMap.set(c.slug, {
                 id: String(c.id || c.slug),
                 title: c.name,
@@ -111,10 +116,7 @@ export function HomePage() {
                   cleanDescription ||
                   meta.subtitle ||
                   `Khám phá không gian nội thất tinh tế thuộc ${c.name}.`,
-                image:
-                  c.coverImageUrl ||
-                  c.products?.[0]?.primaryImageUrl ||
-                  DEFAULT_PLACEHOLDER_IMAGE,
+                image: imgUrl || DEFAULT_PLACEHOLDER_IMAGE,
                 url: `/bo-suu-tap/${c.slug}`,
                 itemCount: count > 0 ? `${count} sản phẩm` : "Khám phá ngay",
               });
@@ -122,8 +124,8 @@ export function HomePage() {
         }
 
         // B) Bổ sung các Bộ sưu tập lưu trong bảng categories (categoryGroup === 'COLLECTION')
-        if (Array.isArray(cats) && cats.length > 0) {
-          cats
+        if (Array.isArray(catsData) && catsData.length > 0) {
+          catsData
             .filter(
               (c) =>
                 (c.isCollection || c.categoryGroup === "COLLECTION") &&
@@ -133,6 +135,7 @@ export function HomePage() {
             )
             .forEach((c) => {
               if (!collectionMap.has(c.slug)) {
+                const imgUrl = (c.imageUrl || "").trim();
                 collectionMap.set(c.slug, {
                   id: String(c.id || c.slug),
                   title: c.name,
@@ -140,7 +143,7 @@ export function HomePage() {
                   desc:
                     c.description ||
                     `Khám phá không gian nội thất tinh tế thuộc ${c.name}.`,
-                  image: c.imageUrl || DEFAULT_PLACEHOLDER_IMAGE,
+                  image: imgUrl || DEFAULT_PLACEHOLDER_IMAGE,
                   url: `/bo-suu-tap/${c.slug}`,
                   itemCount:
                     c.productCount && c.productCount > 0
@@ -155,10 +158,18 @@ export function HomePage() {
         setCollections(Array.from(collectionMap.values()).slice(0, 4));
       } catch (error) {
         console.error("Lỗi khi tải dữ liệu trang chủ:", error);
+      } finally {
+        clearTimeout(timeoutId);
       }
     };
 
-    fetchData();
+    void fetchData();
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   // ── CMS Hero Banners State ──
@@ -166,9 +177,10 @@ export function HomePage() {
     clientCmsService.getHeroBanners().filter((b) => b.isActive)
   );
 
-
   useEffect(() => {
+    let isMounted = true;
     clientCmsService.fetchHeroBanners().then((items) => {
+      if (!isMounted) return;
       const active = items.filter((b) => b.isActive);
       if (active.length > 0) {
         setBanners(active);
@@ -176,6 +188,7 @@ export function HomePage() {
     });
 
     const handleBannersUpdate = () => {
+      if (!isMounted) return;
       const updated = clientCmsService.getHeroBanners().filter((b) => b.isActive);
       setBanners(updated.length > 0 ? updated : clientCmsService.resetHeroBanners());
       setActiveIndex(0);
@@ -183,6 +196,7 @@ export function HomePage() {
 
     window.addEventListener(CMS_EVENTS.BANNERS_UPDATED, handleBannersUpdate);
     return () => {
+      isMounted = false;
       window.removeEventListener(CMS_EVENTS.BANNERS_UPDATED, handleBannersUpdate);
     };
   }, []);
@@ -197,6 +211,10 @@ export function HomePage() {
     videoUrl?: string;
     actions: Array<{ url: string; label: string; isPrimary?: boolean }>;
     isActive?: boolean;
+    textColor?: string;
+    titleColor?: string;
+    subtitleColor?: string;
+    descriptionColor?: string;
   }> = banners.length > 0 ? banners : [
     {
       subtitle: "NỘI THẤT NHÀ XINH",

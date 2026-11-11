@@ -36,7 +36,7 @@ import vn.nhaxinh.user.UserRepository;
  * </pre>
  */
 @RestController
-@RequestMapping(BaseController.API_V1 + "/admin/orders")
+@RequestMapping({BaseController.API_V1 + "/admin/orders", "/api/admin/orders"})
 // @PreAuthorize("hasAnyRole('ADMIN', 'STAFF')")
 public class AdminOrderController extends BaseController {
 

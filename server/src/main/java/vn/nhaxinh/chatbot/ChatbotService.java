@@ -13,13 +13,19 @@ public class ChatbotService {
 
     private final ChatbotConversationRepository conversationRepository;
     private final ChatbotMessageRepository messageRepository;
+    private final GeminiClient geminiClient;
+    private final ChatbotProductContext productContext;
 
     public ChatbotService(
             ChatbotConversationRepository conversationRepository,
-            ChatbotMessageRepository messageRepository
+            ChatbotMessageRepository messageRepository,
+            GeminiClient geminiClient,
+            ChatbotProductContext productContext
     ) {
+        this.productContext = productContext;
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
+        this.geminiClient = geminiClient;
     }
 
     public ChatbotConversation createConversation(User user, String title) {
@@ -259,7 +265,10 @@ public class ChatbotService {
         }
 
         // Chế độ TRỢ LÝ ẢO AI (BOT) - Tự động phân tích kiến thức nội thất
-        String botReply = generateBotKnowledgeReply(lowerText);
+        List<ChatbotMessage> all = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversation.getId());
+        List<ChatbotMessage> recent = all.size() > 20 ? all.subList(all.size() - 20, all.size()) : all;
+        String catalog = productContext.build(recent);
+        String botReply = geminiClient.generate(recent, catalog).orElseGet(() -> generateBotKnowledgeReply(lowerText));
         return addMessage(conversation, "BOT", botReply);
     }
 

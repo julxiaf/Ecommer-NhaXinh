@@ -25,6 +25,9 @@ public class OrderStatusHistory {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
+    @Column(name = "order_code", length = 64)
+    private String orderCode;
+
     @Column(name = "old_status", length = 30)
     private String oldStatus;
 
@@ -46,6 +49,7 @@ public class OrderStatusHistory {
 
     public OrderStatusHistory(Order order, String oldStatus, String newStatus, String note, User changedBy) {
         this.order = order;
+        this.orderCode = order != null ? order.getOrderCode() : null;
         this.oldStatus = oldStatus;
         this.newStatus = newStatus;
         this.note = note;
@@ -73,6 +77,17 @@ public class OrderStatusHistory {
 
     public void setOrder(Order order) {
         this.order = order;
+        if (order != null && this.orderCode == null) {
+            this.orderCode = order.getOrderCode();
+        }
+    }
+
+    public String getOrderCode() {
+        return orderCode != null ? orderCode : (order != null ? order.getOrderCode() : null);
+    }
+
+    public void setOrderCode(String orderCode) {
+        this.orderCode = orderCode;
     }
 
     public String getOldStatus() {

@@ -1,10 +1,71 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   MessageSquare, X, Send, Bot, Headset,
   Sparkles, PhoneCall, ChevronDown
 } from "lucide-react";
 import { chatbotService, type ChatMessage } from "../services/chatbotService";
+
+/** Hiển thị **chữ đậm**, [liên kết](/san-pham/slug) và thẻ sản phẩm [[PRODUCT|Tên|Giá|Ảnh|Link]]. */
+function renderRichText(text: string, onDark: boolean) {
+  const parts = text.split(/(\[\[PRODUCT\|[^\]]+\]\]|\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g);
+  return parts.map((part, i) => {
+    const prod = part.match(/^\[\[PRODUCT\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]\]$/);
+    if (prod) {
+      const [, name, price, img, url] = prod.map((s) => s?.trim() ?? "");
+      const hasImg = img && img !== "none";
+      const targetUrl = url || "/san-pham";
+      return (
+        <Link
+          key={i}
+          to={targetUrl}
+          className="my-2 flex items-center gap-3 p-2.5 rounded-xl bg-slate-50 hover:bg-blue-50/70 border border-slate-200/90 hover:border-blue-300 transition-all shadow-2xs group no-underline text-left"
+        >
+          {hasImg ? (
+            <img
+              src={img}
+              alt={name}
+              className="w-14 h-14 rounded-lg object-cover bg-white border border-slate-200 shrink-0 group-hover:scale-105 transition-transform"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=200&auto=format&fit=crop&q=80";
+              }}
+            />
+          ) : (
+            <div className="w-14 h-14 rounded-lg bg-slate-200 flex items-center justify-center text-slate-500 text-[10px] font-bold shrink-0">
+              Nhà Xinh
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-slate-900 group-hover:text-blue-700 line-clamp-2 leading-snug">
+              {name}
+            </div>
+            <div className="text-xs font-extrabold text-rose-600 mt-0.5">
+              {price}
+            </div>
+            <div className="text-[10px] font-semibold text-blue-600 mt-0.5 inline-flex items-center gap-1">
+              <span>Xem chi tiết sản phẩm →</span>
+            </div>
+          </div>
+        </Link>
+      );
+    }
+    const bold = part.match(/^\*\*([^*]+)\*\*$/);
+    if (bold) return <strong key={i}>{bold[1]}</strong>;
+    const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+    if (link) {
+      const [, label, href] = link;
+      const cls = onDark
+        ? "underline font-semibold"
+        : "text-blue-600 underline font-semibold hover:text-blue-800";
+      return href.startsWith("/") ? (
+        <Link key={i} to={href} className={cls}>{label}</Link>
+      ) : (
+        <a key={i} href={href} target="_blank" rel="noopener noreferrer" className={cls}>{label}</a>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
 
 export default function ChatWidget() {
   const location = useLocation();
@@ -23,6 +84,14 @@ export default function ChatWidget() {
       createdAt: "Vừa xong",
     },
   ]);
+
+  const [unread, setUnread] = useState(0);
+  const [notice, setNotice] = useState<{ from: string; text: string } | null>(null);
+  const seenCountRef = useRef(0);
+  const isOpenRef = useRef(false);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,15 +117,59 @@ export default function ChatWidget() {
     setMode(chatbotService.getStoredMode());
   }, []);
 
-  // Polling đồng bộ tin nhắn 2 chiều thời gian thực khi cửa sổ chat đang mở
+  // Khởi tạo mốc "đã xem" từ hội thoại đã lưu để không báo nhầm tin cũ
   useEffect(() => {
-    if (!isOpen) return;
     const convId = chatbotService.getStoredConversationId();
     if (!convId) return;
+    chatbotService.getMessages(convId).then((msgs) => {
+      if (msgs && msgs.length > 0) {
+        seenCountRef.current = msgs.length;
+        setMessages(msgs);
+      }
+    });
+  }, []);
+
+  // Khi mở cửa sổ chat: coi như đã đọc hết, xóa huy hiệu và thông báo nổi
+  useEffect(() => {
+    if (isOpen) {
+      setUnread(0);
+      setNotice(null);
+      seenCountRef.current = messages.length;
+    }
+  }, [isOpen, messages.length]);
+
+  // Polling đồng bộ tin nhắn 2 chiều (nhanh khi mở 3.5s, chậm khi đóng 25s để tiết kiệm tài nguyên mạng)
+  useEffect(() => {
+    if (isAdmin) return;
+    const pollInterval = isOpen ? 3500 : 25000;
 
     const interval = setInterval(async () => {
+      // Dừng gọi khi tab đang ẩn ở background
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      const convId = chatbotService.getStoredConversationId();
+      if (!convId) return;
       try {
         const remoteMsgs = await chatbotService.getMessages(convId);
+
+        // Khi đang đóng: phát hiện tin mới từ CSKH/Bot để báo cho khách
+        if (!isOpenRef.current && remoteMsgs && remoteMsgs.length > seenCountRef.current) {
+          const fresh = remoteMsgs
+            .slice(seenCountRef.current)
+            .filter((m) => m.senderType !== "USER");
+          if (fresh.length > 0) {
+            setUnread((u) => u + fresh.length);
+            const last = fresh[fresh.length - 1];
+            setNotice({
+              from: last.senderType === "BOT" ? "Trợ lý AI Nhà Xinh" : "Chuyên viên tư vấn",
+              text: last.messageText
+                .replace(/\[\[PRODUCT\|([^|]*)\|([^\]]*)\]\]/g, "$1")
+                .replace(/[*_`#]/g, "")
+                .slice(0, 120),
+            });
+          }
+          seenCountRef.current = remoteMsgs.length;
+        }
         // Đồng bộ mode từ server (ví dụ khi quá 60s không có phản hồi từ CSKH, server tự động đổi về BOT)
         const serverMode = chatbotService.getStoredMode();
         if (serverMode && serverMode !== mode) {
@@ -77,10 +190,10 @@ export default function ChatWidget() {
       } catch (e) {
         // ignore
       }
-    }, 3000);
+    }, pollInterval);
 
     return () => clearInterval(interval);
-  }, [isOpen, mode]);
+  }, [isAdmin, mode, isOpen]);
 
   // Gửi tin nhắn
   const handleSendMessage = async (textToSend?: string) => {
@@ -324,7 +437,7 @@ export default function ChatWidget() {
                           : "bg-white text-slate-800 border border-indigo-100/90 rounded-tl-xs"
                       }`}
                     >
-                      {m.messageText}
+                      {renderRichText(m.messageText, isUser)}
                     </div>
 
                     {m.createdAt && (
@@ -434,7 +547,31 @@ export default function ChatWidget() {
         {/* Nút Chat AI / Nhân viên tư vấn */}
         <div className="flex items-center gap-3 justify-end">
           {/* Tooltip gợi ý nổi ban đầu */}
-          {showTooltip && !isOpen && (
+          {/* Thông báo nổi khi có tin nhắn mới từ CSKH/Bot lúc cửa sổ chat đang đóng */}
+          {notice && !isOpen && (
+            <div
+              onClick={() => setIsOpen(true)}
+              className="max-w-[260px] bg-white px-3.5 py-2.5 rounded-2xl shadow-2xl border-2 border-blue-500 text-xs text-slate-800 flex items-start gap-2 cursor-pointer hover:bg-slate-50 transition-all animate-in slide-in-from-right-4 fade-in"
+            >
+              <Headset size={16} className="text-blue-600 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <div className="font-bold text-slate-900">{notice.from} vừa nhắn tin</div>
+                <div className="text-slate-600 line-clamp-2">{notice.text}</div>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNotice(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          {showTooltip && !isOpen && !notice && (
             <div
               onClick={() => setIsOpen(true)}
               className="bg-white px-3.5 py-2 rounded-2xl shadow-xl border border-slate-200 text-xs font-semibold text-slate-800 flex items-center gap-2 cursor-pointer hover:bg-slate-50 transition-all animate-bounce"
@@ -469,9 +606,11 @@ export default function ChatWidget() {
             ) : (
               <>
                 <MessageSquare size={24} />
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 border-2 border-white flex items-center justify-center text-[9px] font-bold">
-                  1
-                </span>
+                {unread > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-rose-500 border-2 border-white flex items-center justify-center text-[9px] font-bold animate-pulse">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                )}
               </>
             )}
           </button>

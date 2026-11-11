@@ -37,18 +37,20 @@ public class SystemConfigController {
     @GetMapping("/navigation-menu")
     public ResponseEntity<Map<String, Object>> getNavigationMenu() {
         return systemConfigService.findByKey(KEY_NAVIGATION_MENU)
+                .filter(cfg -> cfg.getConfigValue() != null && !cfg.getConfigValue().isBlank())
                 .map(cfg -> ResponseEntity.ok(Map.<String, Object>of(
                         "success", true,
                         "key", KEY_NAVIGATION_MENU,
-                        "value", cfg.getConfigValue() != null ? cfg.getConfigValue() : "",
+                        "value", cfg.getConfigValue(),
                         "updatedAt", cfg.getUpdatedAt() != null ? cfg.getUpdatedAt().toString() : ""
                 )))
-                .orElseGet(() -> ResponseEntity.ok(Map.<String, Object>of(
-                        "success", true,
-                        "key", KEY_NAVIGATION_MENU,
-                        "value", "",
-                        "message", "Chưa có cấu hình menu tùy biến trong DB"
-                )));
+                .orElseGet(() -> {
+                    return ResponseEntity.ok(Map.of(
+                            "success", false,
+                            "key", KEY_NAVIGATION_MENU,
+                            "value", ""
+                    ));
+                });
     }
 
     /**

@@ -1,6 +1,7 @@
 import type { CartItem } from "../hooks/useStore";
 import { ENDPOINTS } from "./apiEndpoints";
 import { userService } from "./userService";
+import { apiClient } from "./apiClient";
 
 const CART_TOKEN_KEY = "nhaxinh_cart_token";
 
@@ -27,7 +28,18 @@ export interface BackendCartResponse {
   items: BackendCartItemResponse[];
 }
 
+let inFlightCartFetch: Promise<{ ok: boolean; items: CartItem[]; message?: string }> | null = null;
+let lastCartFetchTime = 0;
+let cachedCartResult: { ok: boolean; items: CartItem[]; message?: string } | null = null;
+const CART_CACHE_TTL = 30_000; // 30s TTL in-memory
+
 export const cartService = {
+  /** Xóa cache giỏ hàng in-memory khi có thao tác thay đổi */
+  invalidateCartCache() {
+    cachedCartResult = null;
+    lastCartFetchTime = 0;
+  },
+
   /**
    * Lấy hoặc yêu cầu máy chủ cấp mới X-Cart-Token cho khách vãng lai (POST /api/v1/cart/session)
    */
@@ -37,16 +49,14 @@ export const cartService = {
       return token;
     }
     try {
-      const res = await fetch(ENDPOINTS.CART.SESSION, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.cartToken) {
-          localStorage.setItem(CART_TOKEN_KEY, data.cartToken);
-          return data.cartToken;
-        }
+      const data = await apiClient.post<{ cartToken?: string }>(
+        ENDPOINTS.CART.SESSION,
+        {},
+        { skipAuth: true, retries: 1 }
+      );
+      if (data?.cartToken) {
+        localStorage.setItem(CART_TOKEN_KEY, data.cartToken);
+        return data.cartToken;
       }
     } catch {
       // Bỏ qua lỗi mạng
@@ -106,52 +116,58 @@ export const cartService = {
 
   /**
    * Tải giỏ hàng hiện tại từ máy chủ (tự động nhận diện session tài khoản hoặc X-Cart-Token)
+   * Có TTL cache 30s và in-flight promise deduplication để nhiều component (Header, Home, Pandora) không gọi đồng thời.
    */
-  async fetchCart(): Promise<{ ok: boolean; items: CartItem[]; message?: string }> {
-    try {
-      const headers = await this.getHeaders();
-      const res = await fetch(ENDPOINTS.CART.BASE, {
-        method: "GET",
-        headers,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        return { ok: false, items: [], message: `Lỗi tải giỏ hàng (${res.status})` };
-      }
-
-      // Khi đã đăng nhập và tải thành công giỏ hàng, xóa token giỏ tạm cũ
-      if (userService.hasStoredSession()) {
-        localStorage.removeItem(CART_TOKEN_KEY);
-      }
-
-      const data: BackendCartResponse = await res.json();
-      const items = (data.items || []).map((i) => this.mapBackendItemToCartItem(i));
-      return { ok: true, items };
-    } catch (err: any) {
-      return { ok: false, items: [], message: err?.message || "Không thể kết nối đến máy chủ" };
+  async fetchCart(force = false): Promise<{ ok: boolean; items: CartItem[]; message?: string }> {
+    const now = Date.now();
+    if (!force && cachedCartResult && now - lastCartFetchTime < CART_CACHE_TTL) {
+      return cachedCartResult;
     }
+    if (inFlightCartFetch) {
+      return inFlightCartFetch;
+    }
+
+    inFlightCartFetch = (async () => {
+      try {
+        const headers = await this.getHeaders();
+        const data = await apiClient.get<BackendCartResponse>(ENDPOINTS.CART.BASE, {
+          headers,
+          retries: 2,
+        });
+
+        // Khi đã đăng nhập và tải thành công giỏ hàng, xóa token giỏ tạm cũ
+        if (userService.hasStoredSession()) {
+          localStorage.removeItem(CART_TOKEN_KEY);
+        }
+
+        const items = (data.items || []).map((i) => this.mapBackendItemToCartItem(i));
+        const result = { ok: true, items };
+        cachedCartResult = result;
+        lastCartFetchTime = Date.now();
+        return result;
+      } catch (err: any) {
+        return { ok: false, items: [], message: err?.message || "Không thể kết nối đến máy chủ" };
+      }
+    })().finally(() => {
+      inFlightCartFetch = null;
+    });
+
+    return inFlightCartFetch;
   },
 
   /**
    * Thêm sản phẩm vào giỏ hàng trên máy chủ
    */
   async addItem(variantId: number, quantity = 1): Promise<{ ok: boolean; items?: CartItem[]; message?: string }> {
+    this.invalidateCartCache();
     try {
       const headers = await this.getHeaders();
-      const res = await fetch(ENDPOINTS.CART.ITEMS, {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: JSON.stringify({ variantId, quantity }),
-      });
+      const data = await apiClient.post<BackendCartResponse>(
+        ENDPOINTS.CART.ITEMS,
+        { variantId, quantity },
+        { headers }
+      );
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        return { ok: false, message: body?.message || `Không thể thêm vào giỏ hàng (Mã lỗi ${res.status})` };
-      }
-
-      const data: BackendCartResponse = await res.json();
       const items = (data.items || []).map((i) => this.mapBackendItemToCartItem(i));
       return { ok: true, items };
     } catch (err: any) {
@@ -163,25 +179,19 @@ export const cartService = {
    * Cập nhật số lượng sản phẩm trong giỏ hàng trên máy chủ
    */
   async updateItemQty(cartItemId: number, quantity: number): Promise<{ ok: boolean; items?: CartItem[]; message?: string }> {
+    this.invalidateCartCache();
     try {
       const headers = await this.getHeaders();
-      const res = await fetch(ENDPOINTS.CART.ITEM_BY_ID(cartItemId), {
-        method: "PATCH",
-        headers,
-        credentials: "include",
-        body: JSON.stringify({ quantity }),
-      });
+      const data = await apiClient.patch<BackendCartResponse>(
+        ENDPOINTS.CART.ITEM_BY_ID(cartItemId),
+        { quantity },
+        { headers }
+      );
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        return { ok: false, message: body?.message || "Không thể cập nhật số lượng" };
-      }
-
-      const data: BackendCartResponse = await res.json();
       const items = (data.items || []).map((i) => this.mapBackendItemToCartItem(i));
       return { ok: true, items };
     } catch (err: any) {
-      return { ok: false, message: err?.message || "Lỗi kết nối máy chủ" };
+      return { ok: false, message: err?.message || "Không thể cập nhật số lượng" };
     }
   },
 
@@ -189,6 +199,7 @@ export const cartService = {
    * Xóa sản phẩm khỏi giỏ hàng trên máy chủ (hỗ trợ cả theo itemId hoặc variantId)
    */
   async removeItem(cartItemId?: number, variantId?: number): Promise<{ ok: boolean; items?: CartItem[]; message?: string }> {
+    this.invalidateCartCache();
     try {
       const headers = await this.getHeaders();
       let url = "";
@@ -200,18 +211,8 @@ export const cartService = {
         return { ok: false, message: "Thiếu thông tin sản phẩm để xóa" };
       }
 
-      const res = await fetch(url, {
-        method: "DELETE",
-        headers,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        return { ok: false, message: "Không thể xóa sản phẩm khỏi giỏ hàng" };
-      }
-
-      const data: BackendCartResponse = await res.json();
-      const items = (data.items || []).map((i) => this.mapBackendItemToCartItem(i));
+      const data = await apiClient.delete<BackendCartResponse>(url, { headers });
+      const items = (data?.items || []).map((i) => this.mapBackendItemToCartItem(i));
       return { ok: true, items };
     } catch (err: any) {
       return { ok: false, message: err?.message || "Lỗi kết nối máy chủ" };
@@ -222,14 +223,11 @@ export const cartService = {
    * Xóa sạch toàn bộ giỏ hàng trên máy chủ
    */
   async clearCart(): Promise<boolean> {
+    this.invalidateCartCache();
     try {
       const headers = await this.getHeaders();
-      const res = await fetch(ENDPOINTS.CART.CLEAR, {
-        method: "DELETE",
-        headers,
-        credentials: "include",
-      });
-      return res.ok;
+      await apiClient.delete(ENDPOINTS.CART.CLEAR, { headers });
+      return true;
     } catch {
       return false;
     }
@@ -241,12 +239,12 @@ export const cartService = {
   async resolveVariantId(productId: number, variantId?: number): Promise<number | undefined> {
     if (variantId && variantId < 90000) return variantId;
     try {
-      const res = await fetch(ENDPOINTS.PRODUCTS.BY_ID(productId), { credentials: "include" });
-      if (res.ok) {
-        const detail = await res.json();
-        if (detail.variants && detail.variants.length > 0) {
-          return detail.variants[0].id;
-        }
+      const detail = await apiClient.get<{ variants?: Array<{ id: number }> }>(
+        ENDPOINTS.PRODUCTS.BY_ID(productId),
+        { skipAuth: true }
+      );
+      if (detail.variants && detail.variants.length > 0) {
+        return detail.variants[0].id;
       }
     } catch {
       // Bỏ qua
@@ -258,6 +256,7 @@ export const cartService = {
    * Đồng bộ (merge) các sản phẩm từ local cart lên giỏ hàng máy chủ của tài khoản vừa đăng nhập
    */
   async syncAndMergeLocalCart(localItems: CartItem[]): Promise<CartItem[]> {
+    this.invalidateCartCache();
     // 1. Tải giỏ hàng: Backend tự động gộp giỏ khách (qua X-Cart-Token) vào giỏ tài khoản
     const res = await this.fetchCart();
 
